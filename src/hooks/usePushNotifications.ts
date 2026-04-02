@@ -16,7 +16,9 @@ const pushDebug = (...args: unknown[]) => {
 };
 
 const pushWarn = (...args: unknown[]) => {
-  console.warn(...args);
+  if (__DEV__) {
+    console.warn(...args);
+  }
 };
 
 function getExpoProjectId() {

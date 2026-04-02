@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     View,
     Text,
@@ -15,7 +15,7 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { CalendarPlus, Clock3, History, User, MoreVertical, Search, X, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { CalendarPlus, User, MoreVertical, Search, X, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { getPatientAppointments, createPatientAppointment, updatePatientAppointment } from '../api/patientAppointments';
 import { getPatientProfile } from '../api/auth';
 import { getClinics } from '../api/clinics';
@@ -71,23 +71,6 @@ const to12h = (time?: string) => {
     return `${hour}:${match[2]} ${ampm}`;
 };
 
-const formatWhen = (date?: string, time?: string) => {
-    if (!date) return 'N/A';
-    const ymd = toYMD(date);
-    const hm = toHM(time);
-    if (!ymd || !hm) return ymd || 'N/A';
-    const d = new Date(`${ymd}T${hm}:00`);
-    return d.toLocaleString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-        timeZone: 'Asia/Kolkata',
-    });
-};
-
 const formatDateOnly = (date?: string) => {
     if (!date) return 'N/A';
     const ymd = toYMD(date);
@@ -130,11 +113,11 @@ export default function PatientAppointmentsScreen() {
     const [patientName, setPatientName] = useState('');
     const [otherPatientName, setOtherPatientName] = useState('');
     const [hasOtherContext, setHasOtherContext] = useState(false);
-    const [doctors, setDoctors] = useState<Array<{ doctor_id: number; doctor_name: string; specialization?: string | null; profile_pic_url?: string | null }>>([]);
+    const [doctors, setDoctors] = useState<{ doctor_id: number; doctor_name: string; specialization?: string | null; profile_pic_url?: string | null }[]>([]);
     const [allClinics, setAllClinics] = useState<any[]>([]);
     const [clinics, setClinics] = useState<any[]>([]);
     const [slots, setSlots] = useState<string[]>([]);
-    const [slotDuration, setSlotDuration] = useState(30);
+    const [, setSlotDuration] = useState(30);
     const [booking, setBooking] = useState(false);
     const [open, setOpen] = useState(false);
     const [openCardMenuId, setOpenCardMenuId] = useState<number | null>(null);
@@ -162,7 +145,7 @@ export default function PatientAppointmentsScreen() {
         patient_name: '',
     });
 
-    const loadAll = async () => {
+    const loadAll = useCallback(async () => {
         const [apptsRes, profileRes, clinicsRes, doctorsRes] = await Promise.all([
             getPatientAppointments(),
             getPatientProfile().catch(() => null),
@@ -171,9 +154,6 @@ export default function PatientAppointmentsScreen() {
         ]);
 
         const appts = (apptsRes?.appointments || []) as AppointmentItem[];
-        if (__DEV__) {
-            console.log(`[appointments] fetched ${appts.length} appointments`);
-        }
         setItems(appts);
         const selfProfile = (profileRes?.linked_profiles || []).find((item: any) => String(item?.profile_type || '').toUpperCase() === 'SELF');
         const otherProfile = (profileRes?.linked_profiles || []).find((item: any) => String(item?.profile_type || '').toUpperCase() === 'OTHER');
@@ -204,11 +184,11 @@ export default function PatientAppointmentsScreen() {
             return String(c?.doctor_id || '') === String(form.doctor_id);
         });
         setClinics(cs);
-    };
+    }, [form.doctor_id]);
 
     useEffect(() => {
         loadAll().catch(() => undefined).finally(() => setLoading(false));
-    }, []);
+    }, [loadAll]);
 
     useEffect(() => {
         if (!form.date || !form.clinic_id) {
@@ -954,7 +934,7 @@ export default function PatientAppointmentsScreen() {
                         <ScrollView className="mt-2 text-gray-800">
                             {filteredDoctors.length === 0 ? (
                                 <View className="py-8 items-center">
-                                    <Text className="text-gray-500 text-center">No doctors found matching "{searchQuery}"</Text>
+                                    <Text className="text-gray-500 text-center">No doctors found matching &quot;{searchQuery}&quot;</Text>
                                 </View>
                             ) : (
                                 filteredDoctors.map((item) => (

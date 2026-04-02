@@ -46,7 +46,7 @@
       "package": "com.harshit.daptopatient"
     },
     "web": {
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/daptopatient-favicon.png",
       "bundler": "metro"
     },

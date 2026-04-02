@@ -39,7 +39,7 @@ client.interceptors.response.use(
       );
     }
 
-    if (status === 405) {
+    if (__DEV__ && status === 405) {
       console.error(`[api] 405 ${method} ${url}`);
     }
     return Promise.reject(error);

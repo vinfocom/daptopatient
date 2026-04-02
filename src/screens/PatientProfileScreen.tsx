@@ -1,103 +1,326 @@
-import React from 'react';
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  TouchableOpacity,
+  StatusBar,
+  TextInput,
+} from 'react-native';
+import {
+  User,
+  Phone,
+  LogOut,
+  Pencil,
+  Check,
+  X,
+  Calendar,
+  Users,
+} from 'lucide-react-native';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { getPatientProfile, updatePatientProfile } from '../api/auth';
+import { APP_VERSION } from '../config/env';
 import { useAuthSession } from '../context/AuthSessionContext';
 import type { PatientRootStackParamList } from '../navigation/types';
 
-type PatientProfileNavigationProp = NativeStackNavigationProp<PatientRootStackParamList, 'PatientProfile'>;
+type Nav = NativeStackNavigationProp<PatientRootStackParamList, 'PatientProfile'>;
+
+const GENDER_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'];
+
+type DoctorItem = {
+  doctor_id?: number;
+  doctor_name?: string | null;
+  specialization?: string | null;
+  phone?: string | null;
+};
+
+type PatientProfileData = {
+  full_name?: string | null;
+  phone?: string | null;
+  age?: number | null;
+  gender?: string | null;
+};
 
 export default function PatientProfileScreen() {
-  const navigation = useNavigation<PatientProfileNavigationProp>();
-  const { patient, clearSession } = useAuthSession();
+  const navigation = useNavigation<Nav>();
+  const { clearSession, refreshSession } = useAuthSession();
+  const [patient, setPatient] = useState<PatientProfileData | null>(null);
+  const [doctors, setDoctors] = useState<DoctorItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
 
-  const handleLogout = async () => {
-    await clearSession();
-    navigation.replace('Login');
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [age, setAge] = useState('');
+  const [gender, setGender] = useState('');
+
+  useEffect(() => {
+    void loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      const data = await getPatientProfile();
+      const nextPatient = data.patient;
+      setPatient(nextPatient);
+      setDoctors(data.doctors || []);
+      setFullName(nextPatient?.full_name || '');
+      setPhone(nextPatient?.phone || '');
+      setAge(nextPatient?.age ? String(nextPatient.age) : '');
+      setGender(nextPatient?.gender || '');
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Error', 'Failed to load profile');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Patient Profile</Text>
-        <Text style={styles.description}>
-          This patient-only profile screen is wired into the shell and ready for the full profile migration.
-        </Text>
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updatePatientProfile({
+        full_name: fullName,
+        phone,
+        age: age ? parseInt(age, 10) : undefined,
+        gender,
+      });
+      await refreshSession();
+      Alert.alert('Success', 'Profile updated successfully');
+      setEditing(false);
+      await loadProfile();
+    } catch (error: any) {
+      Alert.alert('Error', error?.response?.data?.error || 'Failed to update profile');
+    } finally {
+      setSaving(false);
+    }
+  };
 
-        <View style={styles.card}>
-          <Text style={styles.label}>Name</Text>
-          <Text style={styles.value}>{patient?.full_name || 'Patient'}</Text>
+  const handleCancel = () => {
+    setFullName(patient?.full_name || '');
+    setPhone(patient?.phone || '');
+    setAge(patient?.age ? String(patient.age) : '');
+    setGender(patient?.gender || '');
+    setEditing(false);
+  };
 
-          <Text style={styles.label}>Phone</Text>
-          <Text style={styles.value}>{patient?.phone || 'Not available'}</Text>
-        </View>
+  const handleLogout = async () => {
+    Alert.alert('Logout', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          await clearSession();
+          navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        },
+      },
+    ]);
+  };
 
-        <Pressable onPress={handleLogout} style={({ pressed }) => [styles.button, pressed ? styles.buttonPressed : null]}>
-          <Text style={styles.buttonText}>Logout</Text>
-        </Pressable>
+  if (loading) {
+    return (
+      <View className="flex-1 justify-center items-center bg-gray-50">
+        <ActivityIndicator size="large" color="#2563eb" />
       </View>
+    );
+  }
+
+  return (
+    <SafeAreaView className="flex-1 bg-blue-700">
+      <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
+      <ScrollView className="flex-1 bg-gray-50" showsVerticalScrollIndicator={false}>
+        <Animated.View entering={FadeInDown.duration(600).springify()} className="bg-blue-700 px-6 pt-8 pb-10">
+          <View className="flex-row items-center justify-between mb-4">
+            <View className="flex-1">
+              <Text className="text-blue-200 text-sm font-medium">Patient Profile</Text>
+              <Text className="text-white text-3xl font-bold mt-1">
+                {patient?.full_name || 'Patient'}
+              </Text>
+              {(patient?.age || patient?.gender) && (
+                <Text className="text-blue-200 text-sm mt-1">
+                  {[patient.gender, patient.age ? `${patient.age} yrs` : null].filter(Boolean).join(' • ')}
+                </Text>
+              )}
+            </View>
+            <View
+              className="bg-white w-16 h-16 rounded-full items-center justify-center border-4 border-blue-500"
+              style={{ shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, elevation: 4 }}
+            >
+              <User size={32} color="#1d4ed8" />
+            </View>
+          </View>
+          <View className="flex-row gap-2">
+            {!editing ? (
+              <TouchableOpacity
+                onPress={() => setEditing(true)}
+                className="flex-row items-center bg-white/20 px-4 py-2 rounded-full"
+              >
+                <Pencil size={14} color="#fff" />
+                <Text className="text-white text-sm font-semibold ml-1">Edit Profile</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity
+                  onPress={handleSave}
+                  disabled={saving}
+                  className="flex-row items-center bg-green-400 px-4 py-2 rounded-full"
+                >
+                  {saving ? <ActivityIndicator size="small" color="#fff" /> : <Check size={14} color="#fff" />}
+                  <Text className="text-white text-sm font-semibold ml-1">Save</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleCancel}
+                  className="flex-row items-center bg-white/20 px-4 py-2 rounded-full"
+                >
+                  <X size={14} color="#fff" />
+                  <Text className="text-white text-sm font-semibold ml-1">Cancel</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </Animated.View>
+
+        <View className="px-5 mt-6">
+          <Animated.Text entering={FadeInUp.delay(300).duration(500)} className="text-gray-700 font-bold text-base mb-3">
+            Profile Info
+          </Animated.Text>
+
+          <Animated.View entering={FadeInUp.delay(400).duration(500)}>
+            {editing ? (
+              <View className="space-y-3 mb-3">
+                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                  <Text className="text-xs text-gray-400 font-semibold uppercase mb-1">Full Name</Text>
+                  <TextInput
+                    className="text-gray-800 text-base"
+                    value={fullName}
+                    onChangeText={setFullName}
+                    placeholder="Your full name"
+                  />
+                </View>
+                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                  <Text className="text-xs text-gray-400 font-semibold uppercase mb-1">Phone</Text>
+                  <TextInput
+                    className="text-gray-800 text-base"
+                    value={phone}
+                    onChangeText={setPhone}
+                    placeholder="+91 9876543210"
+                    keyboardType="phone-pad"
+                  />
+                </View>
+                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                  <Text className="text-xs text-gray-400 font-semibold uppercase mb-1">Age</Text>
+                  <TextInput
+                    className="text-gray-800 text-base"
+                    value={age}
+                    onChangeText={(text) => setAge(text.replace(/[^0-9]/g, ''))}
+                    placeholder="e.g. 28"
+                    keyboardType="number-pad"
+                    maxLength={3}
+                  />
+                </View>
+                <View className="bg-white rounded-2xl px-4 py-3 border border-blue-100">
+                  <Text className="text-xs text-gray-400 font-semibold uppercase mb-2">Gender</Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    {GENDER_OPTIONS.map((option) => (
+                      <TouchableOpacity
+                        key={option}
+                        onPress={() => setGender(option)}
+                        className={`px-3 py-1.5 rounded-full border ${
+                          gender === option ? 'bg-blue-600 border-blue-600' : 'bg-gray-50 border-gray-300'
+                        }`}
+                      >
+                        <Text className={`text-xs font-semibold ${gender === option ? 'text-white' : 'text-gray-600'}`}>
+                          {option}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <>
+                <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                  <View className="mr-3 mt-0.5"><User size={20} color="#4b5563" /></View>
+                  <View className="flex-1">
+                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Full Name</Text>
+                    <Text className="text-base text-gray-800 font-medium">{patient?.full_name || 'N/A'}</Text>
+                  </View>
+                </View>
+                <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                  <View className="mr-3 mt-0.5"><Phone size={20} color="#4b5563" /></View>
+                  <View className="flex-1">
+                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Phone</Text>
+                    <Text className="text-base text-gray-800 font-medium">{patient?.phone || 'N/A'}</Text>
+                  </View>
+                </View>
+                <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                  <View className="mr-3 mt-0.5"><Calendar size={20} color="#4b5563" /></View>
+                  <View className="flex-1">
+                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Age</Text>
+                    <Text className="text-base text-gray-800 font-medium">{patient?.age ? `${patient.age} years` : 'N/A'}</Text>
+                  </View>
+                </View>
+                <View className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-start" style={{ elevation: 2 }}>
+                  <View className="mr-3 mt-0.5"><Users size={20} color="#4b5563" /></View>
+                  <View className="flex-1">
+                    <Text className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Gender</Text>
+                    <Text className="text-base text-gray-800 font-medium">{patient?.gender || 'N/A'}</Text>
+                  </View>
+                </View>
+              </>
+            )}
+          </Animated.View>
+
+          {doctors.length > 0 && (
+            <>
+              <Animated.Text entering={FadeInUp.delay(500).duration(500)} className="text-gray-700 font-bold text-base mt-4 mb-3">
+                My Doctors
+              </Animated.Text>
+              <Animated.View entering={FadeInUp.delay(600).duration(500)}>
+                {doctors.map((doctor, index) => (
+                  <View key={doctor.doctor_id || index} className="bg-white rounded-2xl px-4 py-4 mb-3 flex-row items-center" style={{ elevation: 2 }}>
+                    <View className="bg-blue-100 w-10 h-10 rounded-full items-center justify-center mr-3">
+                      <User size={18} color="#1d4ed8" />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-gray-800 font-semibold">{doctor.doctor_name || 'Doctor'}</Text>
+                      <Text className="text-gray-500 text-xs mt-0.5">{doctor.specialization || 'General'}</Text>
+                    </View>
+                    {doctor.phone && (
+                      <View className="flex-row items-center">
+                        <Phone size={13} color="#6b7280" />
+                        <Text className="text-gray-500 text-xs ml-1">{doctor.phone}</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </Animated.View>
+            </>
+          )}
+
+          <Animated.View entering={FadeInUp.delay(700).duration(500)} className="mt-4 mb-10">
+            <TouchableOpacity
+              onPress={handleLogout}
+              activeOpacity={0.7}
+              className="border border-red-200 bg-red-50 rounded-2xl py-4 items-center flex-row justify-center"
+            >
+              <LogOut size={20} color="#ef4444" style={{ marginRight: 8 }} />
+              <Text className="text-red-500 font-bold text-lg">Logout</Text>
+            </TouchableOpacity>
+            <Text className="text-center text-xs text-gray-400 mt-4">
+              Version {APP_VERSION}
+            </Text>
+          </Animated.View>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 24,
-    gap: 18,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#0f172a',
-    textAlign: 'center',
-  },
-  description: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: '#475569',
-    textAlign: 'center',
-  },
-  card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 24,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    gap: 8,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#64748b',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  value: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginBottom: 6,
-  },
-  button: {
-    backgroundColor: '#0f766e',
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonPressed: {
-    opacity: 0.85,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-});

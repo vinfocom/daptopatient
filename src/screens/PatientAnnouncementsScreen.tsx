@@ -90,9 +90,29 @@ export default function PatientAnnouncementsScreen() {
         socketRef.current = socket;
 
         const joinAllRooms = () => {
+            doctorIds.forEach((doctorId) => {
+                socket.emit('join_chat', { patientId, doctorId });
+            });
+        };
+
+        socket.on('connect', joinAllRooms);
+        socket.on('receive_message', (msg: any) => {
+            if (!msg || msg.patient_id !== patientId || msg.sender !== 'DOCTOR') return;
+            if (!String(msg.content || '').startsWith('Announcement:')) return;
+            playSound();
+            fetchAnnouncements().catch(() => undefined);
+        });
+
+        if (socket.connected) {
+            joinAllRooms();
+        }
+
+        return () => {
+            socket.removeAllListeners();
+            socket.disconnect();
             socketRef.current = null;
         };
-    }, [doctorIds, patientId]);
+    }, [doctorIds, fetchAnnouncements, patientId, playSound]);
 
     const onRefresh = async () => {
         setRefreshing(true);

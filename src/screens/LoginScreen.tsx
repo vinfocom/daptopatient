@@ -1,18 +1,23 @@
 import React, { useState } from 'react';
 import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+  ScrollView,
+  StatusBar,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { ArrowRight, ShieldCheck, Stethoscope, Mail } from 'lucide-react-native';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
 import { patientLogin, savePatientPushToken } from '../api/auth';
 import { setAuthSession } from '../api/token';
@@ -25,9 +30,7 @@ type LoginScreenNavigationProp = NativeStackNavigationProp<PatientRootStackParam
 async function registerPatientPushToken(authToken?: string) {
   try {
     const pushToken = await registerForPushNotificationsAsync();
-    if (!pushToken?.data) {
-      return;
-    }
+    if (!pushToken?.data) return;
     await savePatientPushToken(pushToken.data, authToken);
   } catch (error) {
     if (__DEV__) {
@@ -41,18 +44,19 @@ export default function LoginScreen() {
   const { refreshSession } = useAuthSession();
   const [identifier, setIdentifier] = useState('');
   const [loading, setLoading] = useState(false);
+  const [identifierFocused, setIdentifierFocused] = useState(false);
 
   const handleLogin = async () => {
-    if (!identifier.trim()) {
-      Alert.alert('Missing field', 'Please enter your patient login identifier.');
-      return;
-    }
-
     setLoading(true);
     try {
+      if (!identifier.trim()) {
+        Alert.alert('Error', 'Please enter phone or telegram username');
+        return;
+      }
+
       const response = await patientLogin(identifier.trim());
-      if (!response?.token || (response?.patient && response.patient.role && response.patient.role !== 'PATIENT')) {
-        Alert.alert('Login failed', 'This app supports only patient accounts.');
+      if (!response?.token || (response?.patient?.role && response.patient.role !== 'PATIENT')) {
+        Alert.alert('Error', 'Login failed: Invalid patient session');
         return;
       }
 
@@ -62,123 +66,142 @@ export default function LoginScreen() {
       navigation.replace('PatientMain');
     } catch (error: any) {
       const status = error?.response?.status;
-      let message = error?.response?.data?.error || 'Login failed. Please try again.';
+      let message = error?.response?.data?.error || 'Login failed. Please check your credentials and try again.';
 
-      if (status === 400 || status === 401 || status === 404) {
-        message = 'Invalid patient identifier.';
+      if (status === 401 || status === 400 || status === 404) {
+        message = 'Invalid phone number or username.';
       } else if (status === 500) {
         message = 'Server error. Please try again later.';
       } else if (!status) {
         message = 'Network error. Please check your internet connection.';
       }
 
-      Alert.alert('Login failed', message);
+      Alert.alert('Login Failed', message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.brand}>Dapto Patient</Text>
-          <Text style={styles.subtitle}>Patient portal</Text>
-        </View>
+    <SafeAreaView className="flex-1 bg-blue-700" edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <KeyboardAvoidingView
+          behavior="padding"
+          keyboardVerticalOffset={Platform.OS === 'android' ? 0 : 0}
+          className="flex-1"
+        >
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Animated.View
+              entering={FadeInDown.duration(600).springify()}
+              className="bg-blue-700 items-center px-8 pt-12 pb-16"
+            >
+              <View className="w-24 h-24 rounded-full bg-white items-center justify-center mb-5 shadow-lg">
+                <Stethoscope size={48} color="#1d4ed8" />
+              </View>
 
-        <View style={styles.card}>
-          <Text style={styles.title}>Sign in</Text>
-          <Text style={styles.description}>
-            This app accepts only patient accounts.
-          </Text>
+              <Text className="text-white text-4xl font-extrabold tracking-wide mb-2">
+                Patient Portal
+              </Text>
+              <Text className="text-blue-200 text-base text-center">
+                Sign in to view appointments, chat, and announcements
+              </Text>
+            </Animated.View>
 
-          <TextInput
-            autoCapitalize="none"
-            placeholder="Phone or patient identifier"
-            placeholderTextColor="#94a3b8"
-            style={styles.input}
-            value={identifier}
-            onChangeText={setIdentifier}
-          />
+            <Animated.View
+              entering={FadeInUp.delay(200).duration(500)}
+              className="flex-1 bg-gray-50 px-7 pt-9 pb-10 -mt-7"
+              style={{ borderTopLeftRadius: 36, borderTopRightRadius: 36 }}
+            >
+              <View className="items-center mb-8">
+                <Text className="text-3xl font-extrabold text-slate-800 mb-2">
+                  Welcome Back
+                </Text>
+                <Text className="text-base text-slate-400 text-center">
+                  Enter your patient identifier to continue
+                </Text>
+              </View>
 
-          <Pressable disabled={loading} onPress={handleLogin} style={({ pressed }) => [styles.button, pressed && !loading ? styles.buttonPressed : null]}>
-            {loading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.buttonText}>Continue to patient app</Text>}
-          </Pressable>
-        </View>
-      </KeyboardAvoidingView>
+              <View className="bg-white border border-gray-200 rounded-2xl p-1 mb-5 flex-row">
+                <View className="flex-1 py-2 rounded-xl bg-blue-600">
+                  <Text className="text-center font-semibold text-white">Patient</Text>
+                </View>
+              </View>
+
+              <View className="mb-8">
+                <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
+                  Phone or Telegram Username
+                </Text>
+                <View
+                  className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
+                    identifierFocused ? 'border-blue-500' : 'border-gray-200'
+                  }`}
+                  style={{
+                    shadowColor: identifierFocused ? '#2563eb' : '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: identifierFocused ? 0.15 : 0.04,
+                    shadowRadius: 6,
+                    elevation: identifierFocused ? 4 : 1,
+                  }}
+                >
+                  <Mail size={20} color="#64748b" />
+                  <TextInput
+                    className="flex-1 py-5 px-3 text-base text-slate-800"
+                    placeholder="e.g. 9392569600 or username"
+                    placeholderTextColor="#9ca3af"
+                    value={identifier}
+                    onChangeText={setIdentifier}
+                    autoCapitalize="none"
+                    onFocus={() => setIdentifierFocused(true)}
+                    onBlur={() => setIdentifierFocused(false)}
+                  />
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={handleLogin}
+                disabled={loading}
+                activeOpacity={0.8}
+                className={`rounded-2xl py-5 items-center justify-center ${
+                  loading ? 'bg-blue-300' : 'bg-blue-600'
+                }`}
+                style={{
+                  shadowColor: '#1d4ed8',
+                  shadowOffset: { width: 0, height: 6 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 12,
+                  elevation: 8,
+                }}
+              >
+                {loading ? (
+                  <View className="flex-row items-center">
+                    <ActivityIndicator color="#fff" size="small" />
+                    <Text className="text-white font-bold text-lg ml-3">Signing in...</Text>
+                  </View>
+                ) : (
+                  <View className="flex-row items-center">
+                    <Text className="text-white font-extrabold text-lg mr-2 tracking-wide">
+                      Sign In as Patient
+                    </Text>
+                    <ArrowRight size={20} color="#fff" />
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <View className="flex-row items-center justify-center mt-8 px-4">
+                <ShieldCheck size={14} color="#9ca3af" />
+                <Text className="text-xs text-gray-400 text-center ml-2">
+                  Your session is encrypted and secure.
+                </Text>
+              </View>
+            </Animated.View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#ecfeff',
-  },
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 24,
-    gap: 24,
-  },
-  header: {
-    gap: 6,
-  },
-  brand: {
-    color: '#0f766e',
-    fontSize: 16,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  subtitle: {
-    color: '#0f172a',
-    fontSize: 28,
-    fontWeight: '800',
-  },
-  card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 24,
-    padding: 24,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: '#ccfbf1',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  description: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: '#475569',
-    marginBottom: 6,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#0f172a',
-    backgroundColor: '#ffffff',
-  },
-  button: {
-    backgroundColor: '#0f766e',
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 4,
-  },
-  buttonPressed: {
-    opacity: 0.85,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-});
