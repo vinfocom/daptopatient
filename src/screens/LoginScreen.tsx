@@ -50,7 +50,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       if (!identifier.trim()) {
-        Alert.alert('Error', 'Please enter phone or telegram username');
+        Alert.alert('Error', 'Please enter phone number or Telegram chat ID');
         return;
       }
 
@@ -69,7 +69,7 @@ export default function LoginScreen() {
       let message = error?.response?.data?.error || 'Login failed. Please check your credentials and try again.';
 
       if (status === 401 || status === 400 || status === 404) {
-        message = 'Invalid phone number or username.';
+        message = 'Invalid phone number or Telegram chat ID.';
       } else if (status === 500) {
         message = 'Server error. Please try again later.';
       } else if (!status) {
@@ -134,7 +134,7 @@ export default function LoginScreen() {
 
               <View className="mb-8">
                 <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
-                  Phone or Telegram Username
+                  Phone or Telegram Chat ID
                 </Text>
                 <View
                   className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
@@ -151,7 +151,7 @@ export default function LoginScreen() {
                   <Mail size={20} color="#64748b" />
                   <TextInput
                     className="flex-1 py-5 px-3 text-base text-slate-800"
-                    placeholder="e.g. 9392569600 or username"
+                    placeholder="e.g. 9392569600 or 123456789"
                     placeholderTextColor="#9ca3af"
                     value={identifier}
                     onChangeText={setIdentifier}
@@ -195,7 +195,7 @@ export default function LoginScreen() {
               <View className="flex-row items-center justify-center mt-8 px-4">
                 <ShieldCheck size={14} color="#9ca3af" />
                 <Text className="text-xs text-gray-400 text-center ml-2">
-                  Your session is encrypted and secure.
+                  Use the same phone number or Telegram chat ID stored in the backend.
                 </Text>
               </View>
             </Animated.View>
