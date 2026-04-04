@@ -27,8 +27,32 @@ export interface PatientProfileResponse {
   }>;
 }
 
-export const patientLogin = async (identifier: string) => {
-  const response = await client.post('/patient-auth/login', { identifier });
+export interface LoginChallenge {
+  challengeId: string;
+  question: string;
+  expiresAt: string;
+}
+
+export const getLoginChallenge = async (): Promise<LoginChallenge> => {
+  const response = await client.get('/auth/login-challenge');
+  return response.data;
+};
+
+export const verifyLoginChallenge = async (challengeId: string, answer: string) => {
+  const response = await client.post('/auth/login-challenge', { challengeId, answer });
+  return response.data;
+};
+
+export const patientLogin = async (
+  identifier: string,
+  challengeId: string,
+  challengeVerificationToken: string
+) => {
+  const response = await client.post('/patient-auth/login', {
+    identifier,
+    challengeId,
+    challengeVerificationToken,
+  });
   return response.data;
 };
 

@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { getPatientProfile, savePatientPushToken, type PatientMeUser } from '../api/auth';
-import { getRole, getToken, removeToken, type AppRole } from '../api/token';
+import { getRole, getToken, removeToken, setRole as setStoredRole, type AppRole } from '../api/token';
 import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
 
 type SessionState = {
@@ -94,6 +94,7 @@ export function AuthSessionProvider({
         return;
       }
 
+      await setStoredRole('PATIENT');
       setRole('PATIENT');
       setPatient({ ...response.patient, role: 'PATIENT' });
       await syncPushToken();

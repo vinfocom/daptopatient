@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   StatusBar,
   TextInput,
+  Linking,
 } from 'react-native';
 import {
   User,
@@ -18,6 +19,7 @@ import {
   X,
   Calendar,
   Users,
+  ChevronLeft,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
@@ -138,6 +140,13 @@ export default function PatientProfileScreen() {
       <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
       <ScrollView className="flex-1 bg-gray-50" showsVerticalScrollIndicator={false}>
         <Animated.View entering={FadeInDown.duration(600).springify()} className="bg-blue-700 px-6 pt-8 pb-10">
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            className="self-start w-10 h-10 rounded-full bg-white/15 items-center justify-center mb-4"
+            activeOpacity={0.85}
+          >
+            <ChevronLeft size={20} color="#ffffff" />
+          </TouchableOpacity>
           <View className="flex-row items-center justify-between mb-4">
             <View className="flex-1">
               <Text className="text-blue-200 text-sm font-medium">Patient Profile</Text>
@@ -318,6 +327,11 @@ export default function PatientProfileScreen() {
             <Text className="text-center text-xs text-gray-400 mt-4">
               Version {APP_VERSION}
             </Text>
+            <TouchableOpacity onPress={() => Linking.openURL('https://dapto.vinfocom.co.in/privacy-policy')}>
+              <Text className="text-center text-xs text-blue-600 mt-2">
+                Privacy Policy
+              </Text>
+            </TouchableOpacity>
           </Animated.View>
         </View>
       </ScrollView>
