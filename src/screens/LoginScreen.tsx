@@ -11,9 +11,9 @@ import {
   ScrollView,
   StatusBar,
   Keyboard,
-  TouchableWithoutFeedback,
+  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ArrowRight, ShieldCheck, Stethoscope, Mail, RefreshCw, Calculator, Check } from 'lucide-react-native';
@@ -40,8 +40,11 @@ async function registerPatientPushToken(authToken?: string) {
 }
 
 export default function LoginScreen() {
+  const insets = useSafeAreaInsets();
+  const { height: screenHeight, width: screenWidth, fontScale } = useWindowDimensions();
   const navigation = useNavigation<LoginScreenNavigationProp>();
   const { refreshSession } = useAuthSession();
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [identifier, setIdentifier] = useState('');
   const [loading, setLoading] = useState(false);
   const [identifierFocused, setIdentifierFocused] = useState(false);
@@ -55,9 +58,17 @@ export default function LoginScreen() {
   const [challengeStatus, setChallengeStatus] = useState<'idle' | 'success'>('idle');
   const [answerInputActive, setAnswerInputActive] = useState(false);
 
+  const isCompactScreen = screenHeight < 760;
+  const isVeryCompactScreen = screenHeight < 700;
+  const isNarrowScreen = screenWidth < 360;
+  const isLargeText = fontScale > 1.15;
+  const verificationBoxWidth = isVeryCompactScreen || isNarrowScreen || isLargeText ? 84 : 96;
+  const verificationBoxHeight = isVeryCompactScreen || isLargeText ? 52 : 56;
+  const verificationFontSize = isVeryCompactScreen || isLargeText ? 24 : 28;
+
   const canAttemptLogin = useMemo(
-    () => Boolean(identifier.trim() && challengeAnswer.trim() && challengeVerified),
-    [challengeAnswer, challengeVerified, identifier]
+    () => Boolean(identifier.trim() && challengeAnswer.trim()),
+    [challengeAnswer, identifier]
   );
 
   const loadLoginChallenge = async (clearAnswer = true) => {
@@ -123,6 +134,19 @@ export default function LoginScreen() {
     return () => clearTimeout(timer);
   }, [challengeAnswer, challengeId, challengeLoading, challengeVerified]);
 
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   const handleLogin = async () => {
     setLoading(true);
     try {
@@ -173,123 +197,160 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-blue-700" edges={['top', 'left', 'right']}>
+    <SafeAreaView className="flex-1 bg-gray-50" edges={['bottom', 'left', 'right']}>
       <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <KeyboardAvoidingView
-          behavior="padding"
-          keyboardVerticalOffset={Platform.OS === 'android' ? 0 : 0}
-          className="flex-1"
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+        className="flex-1"
+      >
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingBottom: keyboardVisible ? 12 : Math.max(insets.bottom + 20, 28),
+          }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          showsVerticalScrollIndicator={false}
+          className="bg-gray-50"
+          scrollIndicatorInsets={{ bottom: keyboardVisible ? 12 : Math.max(insets.bottom + 20, 28) }}
         >
-          <ScrollView
-            contentContainerStyle={{ flexGrow: 1 }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
+          <SafeAreaView edges={['top']} className="bg-blue-700">
             <Animated.View
               entering={FadeInDown.duration(600).springify()}
-              className="bg-blue-700 items-center px-8 pt-12 pb-16"
+              className={`bg-blue-700 items-center ${
+                isNarrowScreen ? 'px-6' : 'px-8'
+              } ${
+                isVeryCompactScreen ? 'pt-5 pb-8' : isCompactScreen ? 'pt-6 pb-10' : 'pt-8 pb-12'
+              }`}
             >
-              <View className="w-24 h-24 rounded-full bg-white items-center justify-center mb-5 shadow-lg">
-                <Stethoscope size={48} color="#1d4ed8" />
+              <View
+                className={`rounded-full bg-white items-center justify-center shadow-lg ${
+                  isVeryCompactScreen
+                    ? 'w-16 h-16 mb-3'
+                    : isCompactScreen
+                      ? 'w-[72px] h-[72px] mb-3'
+                      : 'w-20 h-20 mb-4'
+                }`}
+              >
+                <Stethoscope size={isVeryCompactScreen ? 30 : isCompactScreen ? 34 : 40} color="#1d4ed8" />
               </View>
 
-              <Text className="text-white text-4xl font-extrabold tracking-wide mb-2">
+              <Text
+                className={`text-white font-extrabold tracking-wide mb-1 text-center ${
+                  isVeryCompactScreen ? 'text-[26px]' : isCompactScreen ? 'text-[28px]' : 'text-[32px]'
+                }`}
+              >
                 Patient Portal
               </Text>
-              <Text className="text-blue-200 text-base text-center">
+              <Text className={`text-blue-200 text-center ${isVeryCompactScreen ? 'text-xs' : 'text-sm'}`}>
                 Sign in to view appointments, chat, and announcements
               </Text>
             </Animated.View>
+          </SafeAreaView>
 
-            <Animated.View
-              entering={FadeInUp.delay(200).duration(500)}
-              className="flex-1 bg-gray-50 px-7 pt-9 pb-10 -mt-7"
-              style={{ borderTopLeftRadius: 36, borderTopRightRadius: 36 }}
-            >
-              <View className="items-center mb-8">
-                <Text className="text-3xl font-extrabold text-slate-800 mb-2">
-                  Welcome Back
-                </Text>
-                <Text className="text-base text-slate-400 text-center">
-                  Enter your patient identifier to continue
-                </Text>
+          <Animated.View
+            entering={FadeInUp.delay(200).duration(500)}
+            className={`bg-gray-50 ${
+              isVeryCompactScreen ? 'px-5 pt-4 pb-4 -mt-4' : isCompactScreen ? 'px-5 pt-5 pb-4 -mt-5' : 'px-6 pt-6 pb-5 -mt-6'
+            }`}
+            style={{ borderTopLeftRadius: 36, borderTopRightRadius: 36 }}
+          >
+            <View className={`items-center ${isVeryCompactScreen ? 'mb-3' : isCompactScreen ? 'mb-4' : 'mb-5'}`}>
+              <Text
+                className={`font-extrabold text-slate-800 mb-1 ${
+                  isVeryCompactScreen ? 'text-2xl' : isCompactScreen ? 'text-[26px]' : 'text-[28px]'
+                }`}
+              >
+                Welcome Back
+              </Text>
+              <Text className={`text-slate-400 text-center ${isVeryCompactScreen ? 'text-xs' : 'text-sm'}`}>
+                Enter your patient identifier to continue
+              </Text>
+            </View>
+
+            <View className={`bg-white border border-gray-200 rounded-2xl p-1 flex-row ${isVeryCompactScreen ? 'mb-3' : 'mb-4'}`}>
+              <View className="flex-1 py-2 rounded-xl bg-blue-600">
+                <Text className="text-center font-semibold text-white">Patient</Text>
               </View>
+            </View>
 
-              <View className="bg-white border border-gray-200 rounded-2xl p-1 mb-5 flex-row">
-                <View className="flex-1 py-2 rounded-xl bg-blue-600">
-                  <Text className="text-center font-semibold text-white">Patient</Text>
-                </View>
+            <View className={isVeryCompactScreen ? 'mb-3.5' : 'mb-4'}>
+              <Text className="text-base font-bold text-gray-700 mb-2 ml-1">Phone or Telegram Chat ID</Text>
+              <View
+                className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
+                  identifierFocused ? 'border-blue-500' : 'border-gray-200'
+                }`}
+                style={{
+                  shadowColor: identifierFocused ? '#2563eb' : '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: identifierFocused ? 0.15 : 0.04,
+                  shadowRadius: 6,
+                  elevation: identifierFocused ? 4 : 1,
+                }}
+              >
+                <Mail size={20} color="#64748b" />
+                <TextInput
+                  className={`flex-1 px-3 text-base text-slate-800 ${isVeryCompactScreen ? 'py-3.5' : 'py-4'}`}
+                  placeholder="e.g. 9392569600 or 123456789"
+                  placeholderTextColor="#9ca3af"
+                  value={identifier}
+                  onChangeText={setIdentifier}
+                  autoCapitalize="none"
+                  onFocus={() => setIdentifierFocused(true)}
+                  onBlur={() => setIdentifierFocused(false)}
+                />
               </View>
+            </View>
 
-              <View className="mb-8">
-                <Text className="text-base font-bold text-gray-700 mb-2 ml-1">
-                  Phone or Telegram Chat ID
-                </Text>
-                <View
-                  className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
-                    identifierFocused ? 'border-blue-500' : 'border-gray-200'
-                  }`}
-                  style={{
-                    shadowColor: identifierFocused ? '#2563eb' : '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: identifierFocused ? 0.15 : 0.04,
-                    shadowRadius: 6,
-                    elevation: identifierFocused ? 4 : 1,
+            <View className="mb-2">
+              <View className="flex-row items-center justify-between mb-2">
+                <Text className="text-base font-bold text-gray-700 ml-1">Quick Verification</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    void loadLoginChallenge();
                   }}
+                  disabled={challengeLoading || verifyingChallenge}
+                  className="flex-row items-center"
                 >
-                  <Mail size={20} color="#64748b" />
-                  <TextInput
-                    className="flex-1 py-5 px-3 text-base text-slate-800"
-                    placeholder="e.g. 9392569600 or 123456789"
-                    placeholderTextColor="#9ca3af"
-                    value={identifier}
-                    onChangeText={setIdentifier}
-                    autoCapitalize="none"
-                    onFocus={() => setIdentifierFocused(true)}
-                    onBlur={() => setIdentifierFocused(false)}
-                  />
-                </View>
+                  <RefreshCw size={14} color="#2563eb" />
+                </TouchableOpacity>
               </View>
 
-              <View className="mb-2">
-                <View className="flex-row items-center justify-between mb-2">
-                  <Text className="text-base font-bold text-gray-700 ml-1">
-                    Quick Verification
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => void loadLoginChallenge()}
-                    disabled={challengeLoading || verifyingChallenge}
-                    className="flex-row items-center"
-                  >
-                    <RefreshCw size={14} color="#2563eb" />
-                  </TouchableOpacity>
-                </View>
-
-                <View className="bg-white border border-blue-100 rounded-2xl px-4 py-3 mb-3">
-                  <View className="flex-row items-center pl-5">
+              <View
+                className={`bg-white border border-blue-100 rounded-2xl px-4 ${
+                  isVeryCompactScreen ? 'py-2 mb-1.5' : 'py-2.5 mb-2'
+                }`}
+              >
+                <View className="flex-row items-center pl-3">
+                  <View className="flex-1 min-w-0 flex-row items-center flex-wrap">
                     <Calculator size={24} color="#2563eb" />
                     {challengeLoading ? (
-                      <Text className="text-slate-800 font-bold text-2xl ml-3">
-                        Loading calculation...
-                      </Text>
+                      <Text className="text-slate-800 font-bold text-2xl ml-3 shrink">Loading calculation...</Text>
                     ) : challengeQuestion ? (
-                      <>
-                        <Text className="text-slate-800 font-bold text-[28px] ml-4 mr-1">
+                      <View className="flex-1 min-w-0 flex-row items-center flex-wrap ml-4">
+                        <Text
+                          className={`text-slate-800 font-bold mr-2 shrink ${
+                            isVeryCompactScreen || isLargeText ? 'text-[24px]' : 'text-[28px]'
+                          }`}
+                        >
                           {challengeQuestion.replace('?', '')}
                         </Text>
                         {challengeAnswer === '' && !answerInputActive && !challengeVerified ? (
                           <TouchableOpacity
                             activeOpacity={0.9}
                             onPress={() => setAnswerInputActive(true)}
-                            className="w-[112px] h-[56px] bg-white items-center justify-center ml-5 mr-1 px-2 rounded-2xl border border-blue-200"
+                            className="bg-white items-center justify-center ml-2 px-2 rounded-2xl border border-blue-200 shrink-0"
+                            style={{ width: verificationBoxWidth, height: verificationBoxHeight }}
                           >
-                            <Text className="text-[28px] font-bold text-gray-400">?</Text>
+                            <Text className="font-bold text-gray-400" style={{ fontSize: verificationFontSize }}>
+                              ?
+                            </Text>
                           </TouchableOpacity>
                         ) : (
                           <TextInput
                             autoFocus={answerInputActive && !challengeVerified}
-                            className="w-[112px] h-[56px] bg-white text-center text-[28px] font-bold text-slate-800 ml-5 mr-1 px-2 rounded-2xl border border-blue-200"
+                            className="bg-white text-center font-bold text-slate-800 ml-2 px-2 rounded-2xl border border-blue-200 shrink-0"
                             placeholder="?"
                             placeholderTextColor="#9ca3af"
                             value={challengeAnswer}
@@ -307,71 +368,91 @@ export default function LoginScreen() {
                             keyboardType="number-pad"
                             maxLength={4}
                             editable={!challengeLoading && !challengeVerified}
-                            style={{ textAlign: 'center', lineHeight: 32 }}
+                            style={{
+                              width: verificationBoxWidth,
+                              height: verificationBoxHeight,
+                              textAlign: 'center',
+                              fontSize: verificationFontSize,
+                              lineHeight: verificationFontSize + 4,
+                            }}
                           />
                         )}
-                      </>
+                      </View>
                     ) : (
-                      <Text className="text-slate-800 font-bold text-2xl ml-3">
-                        Calculation unavailable
-                      </Text>
+                      <Text className="text-slate-800 font-bold text-2xl ml-3 shrink">Calculation unavailable</Text>
                     )}
-                    <View className="ml-1 w-9 h-9 items-center justify-center">
-                      {verifyingChallenge ? (
-                        <ActivityIndicator color="#2563eb" size="small" />
-                      ) : challengeStatus === 'success' ? (
-                        <Animated.View
-                          entering={ZoomIn.duration(220)}
-                          className="w-9 h-9 rounded-xl bg-emerald-500 items-center justify-center"
-                        >
-                          <Check size={18} color="#fff" />
-                        </Animated.View>
-                      ) : null}
-                    </View>
+                  </View>
+                  <View className="ml-3 w-9 h-9 items-center justify-center shrink-0">
+                    {verifyingChallenge ? (
+                      <ActivityIndicator color="#2563eb" size="small" />
+                    ) : challengeStatus === 'success' ? (
+                      <Animated.View
+                        entering={ZoomIn.duration(220)}
+                        className="w-9 h-9 rounded-xl bg-emerald-500 items-center justify-center"
+                      >
+                        <Check size={18} color="#fff" />
+                      </Animated.View>
+                    ) : null}
                   </View>
                 </View>
               </View>
+            </View>
 
-              <TouchableOpacity
-                onPress={handleLogin}
-                disabled={loading || !canAttemptLogin}
-                activeOpacity={0.8}
-                className={`rounded-2xl py-5 items-center justify-center ${
-                  loading || !canAttemptLogin ? 'bg-blue-300' : 'bg-blue-600'
-                }`}
-                style={{
-                  shadowColor: '#1d4ed8',
-                  shadowOffset: { width: 0, height: 6 },
-                  shadowOpacity: 0.4,
-                  shadowRadius: 12,
-                  elevation: 8,
-                }}
-              >
-                {loading ? (
-                  <View className="flex-row items-center">
-                    <ActivityIndicator color="#fff" size="small" />
-                    <Text className="text-white font-bold text-lg ml-3">Signing in...</Text>
-                  </View>
-                ) : (
-                  <View className="flex-row items-center">
-                    <Text className="text-white font-extrabold text-lg mr-2 tracking-wide">
-                      Sign In as Patient
-                    </Text>
-                    <ArrowRight size={20} color="#fff" />
-                  </View>
-                )}
-              </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleLogin}
+              disabled={loading || !canAttemptLogin}
+              activeOpacity={0.8}
+              className={`rounded-2xl items-center justify-center ${
+                isVeryCompactScreen ? 'py-3.5' : 'py-4'
+              } ${loading || !canAttemptLogin ? 'bg-blue-300' : 'bg-blue-600'}`}
+              style={{
+                shadowColor: '#1d4ed8',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.4,
+                shadowRadius: 12,
+                elevation: 8,
+              }}
+            >
+              {loading ? (
+                <View className="flex-row items-center">
+                  <ActivityIndicator color="#fff" size="small" />
+                  <Text
+                    className={`text-white font-bold ml-3 ${isVeryCompactScreen || isLargeText ? 'text-base' : 'text-lg'}`}
+                    maxFontSizeMultiplier={1.15}
+                  >
+                    Signing in...
+                  </Text>
+                </View>
+              ) : (
+                <View className="flex-row items-center">
+                  <Text
+                    className={`text-white font-extrabold mr-2 tracking-wide ${
+                      isVeryCompactScreen || isLargeText ? 'text-base' : 'text-lg'
+                    }`}
+                    numberOfLines={2}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
+                    maxFontSizeMultiplier={1.1}
+                    style={{ flexShrink: 1, textAlign: 'center' }}
+                  >
+                    Sign In as Patient
+                  </Text>
+                  <ArrowRight size={20} color="#fff" />
+                </View>
+              )}
+            </TouchableOpacity>
 
-              <View className="flex-row items-center justify-center mt-8 px-4">
+            <View className={`px-4 ${isVeryCompactScreen ? 'mt-3' : 'mt-4'}`}>
+              <View className="flex-row items-center justify-center">
                 <ShieldCheck size={14} color="#9ca3af" />
-                <Text className="text-xs text-gray-400 text-center ml-2">
-                  Use the same phone number or Telegram chat ID stored in the backend.
+                <Text className="text-xs text-gray-400 text-center ml-2" maxFontSizeMultiplier={1.2}>
+                  Authorized medical personnel only.{'\n'}Your session is encrypted and secure.
                 </Text>
               </View>
-            </Animated.View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </TouchableWithoutFeedback>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
