@@ -307,8 +307,8 @@ export default function PatientAppointmentsScreen() {
     const getActionAppointmentIds = (item?: AppointmentItem | null) => {
         if (!item) return { appointmentId: null, appointment_id: null, booking_id: null };
         const appointment_id = item.appointment_id ?? null;
-        const booking_id = item.booking_id ?? item.patient?.booking_id ?? null;
-        const appointmentId = appointment_id ?? booking_id ?? null;
+        const booking_id = item.booking_id ?? null;
+        const appointmentId = appointment_id ?? null;
         return { appointmentId, appointment_id, booking_id };
     };
 
@@ -620,7 +620,7 @@ export default function PatientAppointmentsScreen() {
                                     <View className="flex-1 bg-blue-50 rounded-xl items-center justify-center py-2 px-2">
                                         <Text className="text-[10px] uppercase tracking-wide text-blue-600 font-bold">Appointment No.</Text>
                                         <Text className="mt-1 text-lg font-extrabold text-blue-900">
-                                            {item.booking_id ?? item.patient?.booking_id ?? item.appointment_id}
+                                            {item.booking_id ?? item.appointment_id}
                                         </Text>
                                     </View>
                                 </View>

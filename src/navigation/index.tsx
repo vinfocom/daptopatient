@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import ChatScreen from '../screens/ChatScreen';
 import LoginScreen from '../screens/LoginScreen';
+import SignupScreen from '../screens/SignupScreen';
 import PatientTabNavigator from './PatientTabNavigator';
 import PatientProfileScreen from '../screens/PatientProfileScreen';
 import type { PatientRootStackParamList } from './types';
@@ -24,6 +25,7 @@ export default function AppNavigator({
       }}
     >
       <Stack.Screen name="Login" component={LoginScreen} options={{ animation: 'fade' }} />
+      <Stack.Screen name="Signup" component={SignupScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="PatientMain" component={PatientTabNavigator} options={{ animation: 'fade' }} />
       <Stack.Screen name="Chat" component={ChatScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen

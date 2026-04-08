@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "561775738914",
-    "project_id": "doctor-mobile-push",
-    "storage_bucket": "doctor-mobile-push.firebasestorage.app"
+    "project_number": "1028750156656",
+    "project_id": "dapto-split-push",
+    "storage_bucket": "dapto-split-push.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:561775738914:android:f5d60167f3f718e76a0a7b",
+        "mobilesdk_app_id": "1:1028750156656:android:c1781200673aeaee45a5b5",
         "android_client_info": {
           "package_name": "com.harshit.daptodoctor"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDY-GxrZ0gBCpI1gtnx8a3xNKnCENUfH5g"
+          "current_key": "AIzaSyA9ychosrn3blkDB8O8_Nk5YtQstZ3MWEc"
         }
       ],
       "services": {
@@ -26,7 +26,7 @@
     },
     {
       "client_info": {
-        "mobilesdk_app_id": "1:561775738914:android:bc292ab8958af06c6a0a7b",
+        "mobilesdk_app_id": "1:1028750156656:android:a88c7b5563bdbd6e45a5b5",
         "android_client_info": {
           "package_name": "com.harshit.daptopatient"
         }
@@ -34,26 +34,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDY-GxrZ0gBCpI1gtnx8a3xNKnCENUfH5g"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:561775738914:android:cf728bcdb9aa7edf6a0a7b",
-        "android_client_info": {
-          "package_name": "com.singhaditya1627.doctormobile"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyDY-GxrZ0gBCpI1gtnx8a3xNKnCENUfH5g"
+          "current_key": "AIzaSyA9ychosrn3blkDB8O8_Nk5YtQstZ3MWEc"
         }
       ],
       "services": {

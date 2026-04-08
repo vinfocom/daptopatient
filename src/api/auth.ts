@@ -8,6 +8,10 @@ export interface PatientMeUser {
   phone?: string | null;
   age?: number | null;
   gender?: string | null;
+  admin_id?: number | null;
+  doctor_id?: number | null;
+  booking_id?: number | null;
+  profile_type?: 'SELF' | 'OTHER' | null;
   role?: AppRole;
 }
 
@@ -44,16 +48,35 @@ export const verifyLoginChallenge = async (challengeId: string, answer: string) 
 };
 
 export const patientLogin = async (
-  identifier: string,
+  phone: string,
   challengeId: string,
   challengeVerificationToken: string
 ) => {
   const response = await client.post('/patient-auth/login', {
-    identifier,
+    phone,
     challengeId,
     challengeVerificationToken,
   });
   return response.data;
+};
+
+export const patientSignup = async (data: {
+  full_name: string;
+  phone?: string;
+  age?: number | string;
+  gender?: string;
+  challengeId: string;
+  challengeVerificationToken: string;
+}) => {
+  const response = await client.post('/patient-auth/signup', data);
+  return response.data;
+};
+
+export const checkPatientSignupAvailability = async (phone: string) => {
+  const response = await client.get('/patient-auth/signup', {
+    params: { phone },
+  });
+  return response.data as { exists: boolean; patient?: PatientMeUser | null };
 };
 
 export const getPatientProfile = async (): Promise<PatientProfileResponse> => {

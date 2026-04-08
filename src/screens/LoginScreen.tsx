@@ -16,7 +16,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ArrowRight, ShieldCheck, Stethoscope, Mail, RefreshCw, Calculator, Check } from 'lucide-react-native';
+import { ArrowRight, ShieldCheck, Stethoscope, Mail, RefreshCw, Calculator, Check, UserPlus } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 
 import { getLoginChallenge, patientLogin, savePatientPushToken, verifyLoginChallenge } from '../api/auth';
@@ -151,7 +151,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       if (!identifier.trim()) {
-        Alert.alert('Error', 'Please enter phone number or Telegram chat ID');
+        Alert.alert('Error', 'Please enter phone number');
         return;
       }
 
@@ -181,9 +181,9 @@ export default function LoginScreen() {
       }
 
       if (status === 404) {
-        message = 'Patient not found. Please check your phone number or Telegram chat ID.';
+        message = 'Patient not found. Please check your phone number.';
       } else if (status === 401) {
-        message = 'Invalid phone number or Telegram chat ID.';
+        message = 'Invalid phone number.';
       } else if (status === 500) {
         message = 'Server error. Please try again later.';
       } else if (!status) {
@@ -265,7 +265,7 @@ export default function LoginScreen() {
                 Welcome Back
               </Text>
               <Text className={`text-slate-400 text-center ${isVeryCompactScreen ? 'text-xs' : 'text-sm'}`}>
-                Enter your patient identifier to continue
+                Enter your phone number to continue
               </Text>
             </View>
 
@@ -276,7 +276,7 @@ export default function LoginScreen() {
             </View>
 
             <View className={isVeryCompactScreen ? 'mb-3.5' : 'mb-4'}>
-              <Text className="text-base font-bold text-gray-700 mb-2 ml-1">Phone or Telegram Chat ID</Text>
+              <Text className="text-base font-bold text-gray-700 mb-2 ml-1">Phone Number</Text>
               <View
                 className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
                   identifierFocused ? 'border-blue-500' : 'border-gray-200'
@@ -292,7 +292,7 @@ export default function LoginScreen() {
                 <Mail size={20} color="#64748b" />
                 <TextInput
                   className={`flex-1 px-3 text-base text-slate-800 ${isVeryCompactScreen ? 'py-3.5' : 'py-4'}`}
-                  placeholder="e.g. 9392569600 or 123456789"
+                  placeholder="e.g. 9392569600"
                   placeholderTextColor="#9ca3af"
                   value={identifier}
                   onChangeText={setIdentifier}
@@ -440,6 +440,19 @@ export default function LoginScreen() {
                   <ArrowRight size={20} color="#fff" />
                 </View>
               )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Signup')}
+              activeOpacity={0.8}
+              className={`rounded-2xl items-center justify-center border border-blue-200 bg-white ${
+                isVeryCompactScreen ? 'py-3 mt-3' : 'py-3.5 mt-3'
+              }`}
+            >
+              <View className="flex-row items-center">
+                <UserPlus size={18} color="#2563eb" />
+                <Text className="text-blue-600 font-bold ml-2 text-base">New patient? Create account</Text>
+              </View>
             </TouchableOpacity>
 
             <View className={`px-4 ${isVeryCompactScreen ? 'mt-3' : 'mt-4'}`}>

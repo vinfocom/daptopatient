@@ -120,7 +120,7 @@ const formatDoctorName = (name?: string | null) => {
 
 const getAppointmentNo = (item?: AppointmentItem | null) => {
     if (!item) return null;
-    return item.booking_id ?? item.patient?.booking_id ?? item.appointment_id ?? null;
+    return item.booking_id ?? item.appointment_id ?? null;
 };
 
 const getRelationBadgeText = (item?: AppointmentItem | null) => {

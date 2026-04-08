@@ -10,6 +10,7 @@ export type MainTabParamList = PatientTabParamList;
 
 export type PatientRootStackParamList = {
   Login: undefined;
+  Signup: undefined;
   PatientMain: NavigatorScreenParams<PatientTabParamList> | undefined;
   Chat: {
     patientId: number;
