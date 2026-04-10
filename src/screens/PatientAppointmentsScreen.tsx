@@ -43,6 +43,14 @@ type AppointmentItem = {
     };
 };
 
+type DoctorOption = {
+    doctor_id: number;
+    doctor_name: string;
+    specialization?: string | null;
+    profile_pic_url?: string | null;
+    status?: string | null;
+};
+
 const toYMD = (value?: string) => {
     if (!value) return '';
     const d = new Date(value);
@@ -113,7 +121,7 @@ export default function PatientAppointmentsScreen() {
     const [patientName, setPatientName] = useState('');
     const [otherPatientName, setOtherPatientName] = useState('');
     const [hasOtherContext, setHasOtherContext] = useState(false);
-    const [doctors, setDoctors] = useState<{ doctor_id: number; doctor_name: string; specialization?: string | null; profile_pic_url?: string | null }[]>([]);
+    const [doctors, setDoctors] = useState<DoctorOption[]>([]);
     const [allClinics, setAllClinics] = useState<any[]>([]);
     const [clinics, setClinics] = useState<any[]>([]);
     const [slots, setSlots] = useState<string[]>([]);
@@ -168,12 +176,13 @@ export default function PatientAppointmentsScreen() {
         }));
 
         const ds = ((doctorsRes?.doctors || []) as any[])
-            .filter((d) => d?.doctor_id)
+            .filter((d) => d?.doctor_id && String(d?.status || '').toUpperCase() === 'ACTIVE')
             .map((d) => ({
                 doctor_id: d.doctor_id,
                 doctor_name: d.doctor_name || 'Doctor',
                 specialization: d?.specialization ?? null,
                 profile_pic_url: d?.profile_pic_url ?? null,
+                status: d?.status ?? null,
             }));
         setDoctors(ds);
 
