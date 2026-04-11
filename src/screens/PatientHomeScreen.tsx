@@ -12,13 +12,12 @@ import {
     Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, MessageCircle, LogOut, Settings, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { User, MessageCircle, Settings, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { getPatientProfile, updatePatientProfile } from '../api/auth';
 import { getPatientAppointments } from '../api/patientAppointments';
-import { removeToken } from '../api/token';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
 import { useSWRLite } from '../lib/useSWRLite';
 import { FlashList } from '@shopify/flash-list';
@@ -180,7 +179,7 @@ export default function PatientHomeScreen() {
     type HistoryFilter = 'TODAY' | 'TOMORROW' | 'UPCOMING';
     const navigation = useNavigation<Nav>();
     const isFocused = useIsFocused();
-    const { clearSession, refreshSession } = useAuthSession();
+    const { refreshSession } = useAuthSession();
     const [refreshing, setRefreshing] = useState(false);
     const [announcementCount, setAnnouncementCount] = useState(getPatientAnnouncementsUnreadCount());
     const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
@@ -718,12 +717,6 @@ export default function PatientHomeScreen() {
         }
     };
 
-    const handleLogout = async () => {
-        await removeToken();
-        clearSession();
-        navigation.reset({ index: 0, routes: [{ name: "Login" }] });
-    };
-
     if (loading) {
         return (
             <View className="flex-1 justify-center items-center bg-gray-50">
@@ -854,15 +847,6 @@ export default function PatientHomeScreen() {
                         <View className="items-center mt-14">
                             <Text className="text-gray-500">No assigned doctors yet</Text>
                         </View>
-                    }
-                    ListFooterComponent={
-                        <TouchableOpacity
-                            onPress={handleLogout}
-                            className="mt-6 border border-red-200 bg-red-50 rounded-xl py-3 items-center flex-row justify-center"
-                        >
-                            <LogOut size={18} color="#ef4444" />
-                            <Text className="text-red-500 font-semibold ml-2">Logout</Text>
-                        </TouchableOpacity>
                     }
                 />
                 <IncomingMessageBubble
