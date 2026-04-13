@@ -10,12 +10,30 @@ import {
     Modal,
     ScrollView,
     Image,
+    TextInput,
+    useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, MessageCircle, Settings, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react-native';
-import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
+import {
+    User,
+    MessageCircle,
+    Settings,
+    CalendarDays,
+    ChevronLeft,
+    ChevronRight,
+    Search,
+    X,
+    Stethoscope,
+    HeartPulse,
+    Smile,
+    Baby,
+    Bone,
+    Ear,
+    ShieldPlus,
+} from 'lucide-react-native';
+import { useFocusEffect, useIsFocused, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation/types';
+import type { RootStackParamList, PatientTabParamList } from '../navigation/types';
 import { getPatientProfile, updatePatientProfile } from '../api/auth';
 import { getPatientAppointments } from '../api/patientAppointments';
 import { getChatNotifications, type IncomingNotificationMessage } from '../api/notifications';
@@ -24,7 +42,14 @@ import { FlashList } from '@shopify/flash-list';
 import IncomingMessageBubble from '../components/IncomingMessageBubble';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/env';
+import {
+    type CareSpecializationId,
+    countDoctorsForSpecialization,
+    getAvailableBackendSpecializations,
+    getSpecializationById,
+} from '../config/careMappings';
 import { useAuthSession } from '../context/AuthSessionContext';
+import { getAllDoctors } from '../api/doctors';
 import {
     clearPatientDoctorUnreadCount,
     consumePatientReadDoctorChatEvents,
@@ -49,6 +74,26 @@ interface DoctorItem {
     profile_pic_url?: string | null;
     relation_type?: 'SELF' | 'OTHER';
 }
+
+type ActiveDoctorOption = {
+    doctor_id: number;
+    doctor_name?: string | null;
+    full_name?: string | null;
+    name?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    specialization?: string | null;
+    phone?: string | null;
+    mobile?: string | null;
+    mobile_number?: string | null;
+    profile_pic_url?: string | null;
+    avatar_url?: string | null;
+    status?: string | null;
+    user?: {
+        full_name?: string | null;
+        name?: string | null;
+    } | null;
+};
 
 type AppointmentItem = {
     appointment_id: number;
@@ -117,6 +162,22 @@ const formatDoctorName = (name?: string | null) => {
     return `Dr. ${trimmed}`;
 };
 
+const extractDoctorDisplayName = (doctor?: ActiveDoctorOption | null) => {
+    const compositeName = [doctor?.first_name, doctor?.last_name]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .join(' ');
+    const candidate = [
+        doctor?.doctor_name,
+        doctor?.full_name,
+        doctor?.name,
+        compositeName,
+        doctor?.user?.full_name,
+        doctor?.user?.name,
+    ].find((value) => String(value || '').trim());
+    return String(candidate || 'Doctor').trim();
+};
+
 const getAppointmentNo = (item?: AppointmentItem | null) => {
     if (!item) return null;
     return item.booking_id ?? item.appointment_id ?? null;
@@ -134,6 +195,49 @@ const getRelationBadgeText = (item?: AppointmentItem | null) => {
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+const renderCareIcon = (id: string, color: string, size: number = 18) => {
+    if (id === 'general-physician') return <Stethoscope size={size} color={color} />;
+    if (id === 'dermatologist') return <Smile size={size} color={color} />;
+    if (id === 'dentist') return <ShieldPlus size={size} color={color} />;
+    if (id === 'pediatrician') return <Baby size={size} color={color} />;
+    if (id === 'orthopedic') return <Bone size={size} color={color} />;
+    if (id === 'ent') return <Ear size={size} color={color} />;
+    if (id === 'cardiologist') return <HeartPulse size={size} color={color} />;
+    if (id === 'surgeon') return <ShieldPlus size={size} color={color} />;
+    if (id === 'senior-consultant') return <Stethoscope size={size} color={color} />;
+    return <HeartPulse size={size} color={color} />;
+};
+
+type DiscoverySpecializationCard = {
+    id: string;
+    specializationId?: CareSpecializationId;
+    label: string;
+    description: string;
+    colors: {
+        surface: string;
+        border: string;
+        iconBg: string;
+        icon: string;
+    };
+    doctorCount: number;
+    query: string;
+};
+
+const navigateToBookingFlow = (
+    navigation: Nav,
+    intent: {
+        source: 'specialization';
+        returnTo?: 'home';
+        specializationId?: CareSpecializationId;
+        specializationLabel: string;
+        specializationQuery: string;
+    }
+) => {
+    navigation.navigate('PatientAppointments', {
+        bookingIntent: intent,
+    });
+};
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
 const ymdFromParts = (year: number, month: number, day: number) =>
@@ -178,11 +282,17 @@ const calculateAgeFromDob = (dob: string) => {
 export default function PatientHomeScreen() {
     type HistoryFilter = 'TODAY' | 'TOMORROW' | 'UPCOMING';
     const navigation = useNavigation<Nav>();
+    const route = useRoute<RouteProp<PatientTabParamList, 'PatientHome'>>();
     const isFocused = useIsFocused();
+    const { width } = useWindowDimensions();
     const { refreshSession } = useAuthSession();
     const [refreshing, setRefreshing] = useState(false);
     const [announcementCount, setAnnouncementCount] = useState(getPatientAnnouncementsUnreadCount());
     const [incomingMessage, setIncomingMessage] = useState<IncomingNotificationMessage | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedSpecializationId, setSelectedSpecializationId] = useState<string | null>(null);
+    const [allActiveDoctors, setAllActiveDoctors] = useState<DoctorItem[]>([]);
+    const [discoveryLoading, setDiscoveryLoading] = useState(true);
     const [unreadChatCountsByDoctor, setUnreadChatCountsByDoctor] = useState<Map<number, number>>(
         () => new Map(getPatientUnreadDoctorCountsSnapshot())
     );
@@ -212,10 +322,12 @@ export default function PatientHomeScreen() {
     const { data, isLoading: loading, revalidate } = useSWRLite('patient:home', getPatientProfile);
     const patient = data?.patient || null;
     const hasOtherContext = useMemo(
-        () => ((data?.linked_profiles || []) as Array<{ profile_type?: string | null }>).some((item) => String(item?.profile_type || '').toUpperCase() === 'OTHER'),
+        () => ((data?.linked_profiles || []) as { profile_type?: string | null }[]).some((item) => String(item?.profile_type || '').toUpperCase() === 'OTHER'),
         [data?.linked_profiles]
     );
-    const doctors = (data?.doctors || []) as DoctorItem[];
+    const doctors = useMemo(() => (data?.doctors || []) as DoctorItem[], [data?.doctors]);
+    const isCompactScreen = width < 380;
+    const specializationGridMaxHeight = isCompactScreen ? 6 * 150 + 5 * 12 : 3 * 170 + 2 * 12;
     const todayIST = useMemo(() => {
         const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
         return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
@@ -233,9 +345,86 @@ export default function PatientHomeScreen() {
         });
         return Array.from(byId.values());
     }, [doctors]);
+    const discoveryDoctors = useMemo(() => {
+        const byId = new Map<number, DoctorItem>();
+        allActiveDoctors.forEach((doctor) => {
+            if (!doctor?.doctor_id) return;
+            if (!byId.has(doctor.doctor_id)) {
+                byId.set(doctor.doctor_id, doctor);
+            }
+        });
+        return Array.from(byId.values());
+    }, [allActiveDoctors]);
     const notifCount = useMemo(
         () => Array.from(unreadChatCountsByDoctor.values()).reduce((sum, count) => sum + count, 0),
         [unreadChatCountsByDoctor]
+    );
+    const backendSpecializations = useMemo(
+        () => getAvailableBackendSpecializations(discoveryDoctors),
+        [discoveryDoctors]
+    );
+    const specializationCards = useMemo<DiscoverySpecializationCard[]>(() => {
+        const cardsById = new Map<string, DiscoverySpecializationCard>();
+
+        backendSpecializations.forEach((item) => {
+            if (item.specializationId) {
+                const mapped = getSpecializationById(item.specializationId);
+                if (!mapped) return;
+                const existing = cardsById.get(mapped.id);
+                const nextCount = countDoctorsForSpecialization(discoveryDoctors, mapped.id);
+                cardsById.set(mapped.id, {
+                    id: mapped.id,
+                    specializationId: mapped.id,
+                    label: mapped.label,
+                    description: mapped.description,
+                    colors: mapped.colors,
+                    doctorCount: Math.max(existing?.doctorCount || 0, nextCount),
+                    query: mapped.label,
+                });
+                return;
+            }
+
+            const rawId = `raw:${item.raw}`;
+            cardsById.set(rawId, {
+                id: rawId,
+                specializationId: undefined,
+                label: item.raw,
+                description: 'Specialization',
+                colors: { surface: '#f8fafc', border: '#cbd5e1', iconBg: '#e2e8f0', icon: '#475569' },
+                doctorCount: discoveryDoctors.filter((doctor) => String(doctor.specialization || '').trim() === item.raw).length,
+                query: item.raw,
+            });
+        });
+
+        return Array.from(cardsById.values()).filter((card) => card.doctorCount > 0);
+    }, [backendSpecializations, discoveryDoctors]);
+    const filteredSpecializationCards = useMemo(() => {
+        const query = searchQuery.trim().toLowerCase();
+        if (!query) return specializationCards;
+        return specializationCards.filter((card) =>
+            card.label.toLowerCase().includes(query) || card.description.toLowerCase().includes(query)
+        );
+    }, [searchQuery, specializationCards]);
+    const filteredDoctors = useMemo(() => uniqueDoctors, [uniqueDoctors]);
+    const nextUpcomingAppointment = useMemo(() => {
+        const allUpcoming = Array.from(latestBookedAppointmentByDoctor.entries())
+            .map(([doctorId, appointment]) => {
+                const date = toYMD(appointment.appointment_date);
+                const time = toHM(appointment.start_time);
+                const ts = date && time ? new Date(`${date}T${time}:00`).getTime() : Number.MAX_SAFE_INTEGER;
+                return { doctorId, appointment, ts };
+            })
+            .filter((item) => Number.isFinite(item.ts))
+            .sort((a, b) => a.ts - b.ts);
+        return allUpcoming[0] || null;
+    }, [latestBookedAppointmentByDoctor]);
+    const upcomingDoctor = useMemo(
+        () => uniqueDoctors.find((doctor) => doctor.doctor_id === nextUpcomingAppointment?.doctorId) || null,
+        [nextUpcomingAppointment, uniqueDoctors]
+    );
+    const upcomingRelationBadgeText = useMemo(
+        () => (hasOtherContext && nextUpcomingAppointment ? getRelationBadgeText(nextUpcomingAppointment.appointment) : ''),
+        [hasOtherContext, nextUpcomingAppointment]
     );
     const profileNeedsCompletion = useMemo(
         () => Boolean(patient && (!patient.age || !String(patient.gender || '').trim())),
@@ -268,6 +457,14 @@ export default function PatientHomeScreen() {
     }, [patient, profileNeedsCompletion]);
 
     useEffect(() => {
+        if (route.params?.clearSpecializationSelection) {
+            setSelectedSpecializationId(null);
+            (navigation as unknown as { setParams: (params: { clearSpecializationSelection?: boolean }) => void })
+                .setParams({ clearSpecializationSelection: undefined });
+        }
+    }, [navigation, route.params?.clearSpecializationSelection]);
+
+    useEffect(() => {
         if (!showYearPicker) return;
 
         const currentYear = new Date().getFullYear();
@@ -298,6 +495,31 @@ export default function PatientHomeScreen() {
             setUnreadChatCountsByDoctor(new Map(getPatientUnreadDoctorCountsSnapshot()));
         });
     }, []);
+
+    const loadDiscoveryDoctors = React.useCallback(async () => {
+        setDiscoveryLoading(true);
+        try {
+            const response = await getAllDoctors();
+            const nextDoctors = ((response?.doctors || []) as ActiveDoctorOption[])
+                .filter((doctor) => doctor?.doctor_id && String(doctor?.status || '').toUpperCase() === 'ACTIVE')
+                .map((doctor) => ({
+                    doctor_id: doctor.doctor_id,
+                    doctor_name: extractDoctorDisplayName(doctor),
+                    specialization: doctor.specialization ?? null,
+                    phone: doctor.phone ?? doctor.mobile ?? doctor.mobile_number ?? null,
+                    profile_pic_url: doctor.profile_pic_url ?? doctor.avatar_url ?? null,
+                }));
+            setAllActiveDoctors(nextDoctors);
+        } catch {
+            setAllActiveDoctors([]);
+        } finally {
+            setDiscoveryLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadDiscoveryDoctors().catch(() => undefined);
+    }, [loadDiscoveryDoctors]);
 
     const incrementUnreadDoctorCount = React.useCallback((doctorId: number, amount: number = 1, createdAt?: string) => {
         if (!doctorId || amount <= 0) return;
@@ -548,6 +770,7 @@ export default function PatientHomeScreen() {
         }
     }, [appointmentsByDoctor.size, loadLatestAppointments]);
 
+
     const onRefresh = async () => {
         setRefreshing(true);
         await Promise.all([
@@ -555,6 +778,7 @@ export default function PatientHomeScreen() {
                 Alert.alert("Error", "Failed to load patient data");
             }),
             loadLatestAppointments(),
+            loadDiscoveryDoctors(),
         ]);
         setRefreshing(false);
     };
@@ -729,29 +953,34 @@ export default function PatientHomeScreen() {
         <SafeAreaView className="flex-1 bg-blue-700">
             <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
             <View className="flex-1 bg-gray-50">
-                <View className="bg-blue-700 px-5 pt-6 pb-6 rounded-b-3xl">
-                    <View className="flex-row items-center justify-between">
-                        <View>
-                            <Text className="text-blue-100 text-sm">Patient Portal</Text>
-                            <Text className="text-white text-3xl font-bold mt-1">{patient?.full_name || "Patient"}</Text>
+                <View className="bg-blue-700 px-5 pt-5 pb-6 rounded-b-[30px]">
+                    <View className="flex-row items-start justify-between">
+                        <View className="flex-1 pr-4">
+                            <Text className="text-blue-100 text-sm font-medium">Patient Portal</Text>
+                            <Text className="text-white text-[27px] font-bold mt-1">{patient?.full_name || 'Patient'}</Text>
+                            <Text className="text-blue-100 text-[13px] mt-2">
+                                Find the right care quickly and keep your appointments on track.
+                            </Text>
                         </View>
                         <TouchableOpacity
                             onPress={() => navigation.navigate('PatientProfile')}
-                            className="bg-white/20 rounded-full p-2"
+                            className="bg-white/20 rounded-full p-3"
                         >
-                            <Settings size={22} color="#fff" />
+                            <Settings size={20} color="#fff" />
                         </TouchableOpacity>
                     </View>
+
                 </View>
 
                 <FlashList
-                    data={uniqueDoctors}
+                    data={filteredDoctors}
                     keyExtractor={(item, index) => `doctor:${item.doctor_id}:${index}`}
                     contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+                    estimatedItemSize={112}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
                     ListHeaderComponent={
-                        <View className="mb-2">
-                            {(notifCount > 0 || announcementCount > 0) && (
+                        <View className="pb-3">
+                            {false && (
                                 <View className="mb-3 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                                     <Text className="text-amber-700 text-xs font-semibold">
                                         {notifCount > 0 ? `${notifCount} new chat message${notifCount === 1 ? '' : 's'}` : ''}
@@ -760,15 +989,181 @@ export default function PatientHomeScreen() {
                                     </Text>
                                 </View>
                             )}
-                            <Text className="text-gray-700 font-bold text-base">My Doctors</Text>
+                            <View className="mb-6">
+                                <Text className="text-slate-900 text-lg font-bold mb-3">Choose a specialist</Text>
+                                <View className="bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-3">
+                                    <View className="flex-row items-center">
+                                        <View className="w-10 h-10 rounded-2xl items-center justify-center bg-slate-100 mr-3">
+                                            <Search size={18} color="#475569" />
+                                        </View>
+                                        <TextInput
+                                            value={searchQuery}
+                                            onChangeText={setSearchQuery}
+                                            placeholder="Search specialization"
+                                            placeholderTextColor="#94a3b8"
+                                            className="flex-1 text-[15px] text-slate-800"
+                                        />
+                                        {searchQuery.trim().length > 0 ? (
+                                            <TouchableOpacity
+                                                onPress={() => setSearchQuery('')}
+                                                className="w-9 h-9 rounded-full items-center justify-center bg-slate-100 ml-2"
+                                            >
+                                                <X size={16} color="#64748b" />
+                                            </TouchableOpacity>
+                                        ) : null}
+                                    </View>
+                                </View>
+                                {discoveryLoading ? (
+                                    <Text className="text-slate-500 text-xs mb-3">
+                                        Loading specializations...
+                                    </Text>
+                                ) : null}
+                                {filteredSpecializationCards.length === 0 ? (
+                                    <View className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-4 w-full mb-3">
+                                        <Text className="text-sm font-medium text-slate-700">
+                                            {searchQuery.trim().length > 0 ? 'No specialization matches' : 'No specializations available'}
+                                        </Text>
+                                        <Text className="text-xs text-slate-500 mt-1">
+                                            {searchQuery.trim().length > 0
+                                                ? 'Try a different specialization name.'
+                                                : 'Specialization cards will appear once active doctors are available.'}
+                                        </Text>
+                                    </View>
+                                ) : (
+                                    <ScrollView
+                                        style={{ maxHeight: specializationGridMaxHeight }}
+                                        contentContainerStyle={{ paddingBottom: 4 }}
+                                        showsVerticalScrollIndicator
+                                    >
+                                        <View className="flex-row flex-wrap justify-between">
+                                            {filteredSpecializationCards.map((card) => {
+                                                const isActive = card.id === selectedSpecializationId;
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={card.id}
+                                                        onPress={() => {
+                                                            if (card.doctorCount === 0) {
+                                                                Alert.alert(
+                                                                    'No doctors available',
+                                                                    `No active doctors are currently available for ${card.label}. Please try another specialization.`
+                                                                );
+                                                                setSelectedSpecializationId(card.id);
+                                                                return;
+                                                            }
+                                                            setSelectedSpecializationId(isActive ? null : card.id);
+                                                        if (!isActive) {
+                                                            navigateToBookingFlow(navigation, {
+                                                                source: 'specialization',
+                                                                returnTo: 'home',
+                                                                specializationId: card.specializationId,
+                                                                specializationLabel: card.label,
+                                                                specializationQuery: card.query,
+                                                            });
+                                                        }
+                                                        }}
+                                                        className="rounded-[24px] border p-4 mb-3"
+                                                        style={{
+                                                            width: isCompactScreen ? '100%' : '48%',
+                                                            backgroundColor: card.colors.surface,
+                                                            borderColor: isActive ? '#1d4ed8' : card.colors.border,
+                                                        }}
+                                                        >
+                                                            <View
+                                                            className="w-11 h-11 rounded-2xl items-center justify-center mb-4"
+                                                            style={{ backgroundColor: card.colors.iconBg }}
+                                                        >
+                                                            {renderCareIcon(card.id, card.colors.icon, 20)}
+                                                        </View>
+                                                        <Text className="text-slate-900 text-base font-bold">{card.label}</Text>
+                                                        <Text className="text-slate-500 text-[11px] mt-1 leading-5">{card.description}</Text>
+                                                        <Text className="text-[11px] font-semibold mt-3" style={{ color: card.colors.icon }}>
+                                                            {card.doctorCount > 0
+                                                                ? `${card.doctorCount} doctor${card.doctorCount === 1 ? '' : 's'} available`
+                                                                : 'No mapped doctors yet'}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </View>
+                                    </ScrollView>
+                                )}
+                            </View>
+                            <View className="mb-6 rounded-[26px] border border-sky-100 bg-white px-4 py-4">
+                                <Text className="text-slate-900 text-lg font-bold">Upcoming appointment</Text>
+                                {nextUpcomingAppointment && upcomingDoctor ? (
+                                    <View className="mt-4 rounded-2xl bg-slate-50 px-4 py-4">
+                                        <View className="flex-row items-start justify-between">
+                                            <View className="flex-1 pr-3">
+                                                <Text className="text-slate-900 text-lg font-bold">
+                                                    {formatDoctorName(upcomingDoctor.doctor_name)}
+                                                </Text>
+                                                <Text className="text-slate-500 text-sm mt-1">
+                                                    {nextUpcomingAppointment.appointment.clinic?.clinic_name || 'Clinic'}
+                                                </Text>
+                                            </View>
+                                            {upcomingRelationBadgeText ? (
+                                                <View className={`self-start px-2.5 py-1 rounded-full ${nextUpcomingAppointment.appointment.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
+                                                    <Text className={`text-[10px] font-semibold ${nextUpcomingAppointment.appointment.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
+                                                        {upcomingRelationBadgeText}
+                                                    </Text>
+                                                </View>
+                                            ) : null}
+                                        </View>
+                                        <View className="flex-row flex-wrap items-center mt-3">
+                                            <View className="rounded-full bg-white px-3 py-1.5 mr-2 mb-2">
+                                                <Text className="text-xs font-semibold text-slate-700">
+                                                    {formatDateOnly(nextUpcomingAppointment.appointment.appointment_date)}
+                                                </Text>
+                                            </View>
+                                            <View className="rounded-full bg-white px-3 py-1.5 mb-2">
+                                                <Text className="text-xs font-semibold text-slate-700">
+                                                    {formatTimeOnly(nextUpcomingAppointment.appointment.start_time)}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                        <View className={`mt-4 ${isCompactScreen ? '' : 'flex-row'}`}>
+                                            <TouchableOpacity
+                                                onPress={() => handleOpenDoctorChat(upcomingDoctor.doctor_id, upcomingDoctor.doctor_name || 'Doctor', upcomingDoctor.profile_pic_url)}
+                                                className={`rounded-2xl bg-blue-600 px-4 py-3 items-center ${isCompactScreen ? 'mb-2' : 'flex-1 mr-2'}`}
+                                            >
+                                                <Text className="text-white text-sm font-semibold">Chat</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                onPress={() =>
+                                                    navigation.navigate('PatientAppointments', {
+                                                        appointmentAction: {
+                                                            mode: 'reschedule',
+                                                            appointmentId: nextUpcomingAppointment.appointment.appointment_id,
+                                                        },
+                                                    })
+                                                }
+                                                className={`rounded-2xl border border-slate-200 bg-white px-4 py-3 items-center ${isCompactScreen ? '' : 'flex-1 ml-2'}`}
+                                            >
+                                                <Text className="text-slate-700 text-sm font-semibold">Reschedule</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                ) : (
+                                    <View className="mt-4 rounded-2xl bg-slate-50 px-4 py-4">
+                                        <Text className="text-slate-700 text-sm font-semibold">No upcoming appointment yet</Text>
+                                        <TouchableOpacity
+                                            onPress={() => navigation.navigate('PatientAppointments')}
+                                            className="self-start mt-3 rounded-full bg-blue-600 px-4 py-2"
+                                        >
+                                            <Text className="text-white text-xs font-semibold">Book now</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+                            </View>
+                            <Text className="text-slate-900 text-lg font-bold">My doctors</Text>
                         </View>
                     }
                     renderItem={({ item }) => {
                         const unreadCount = unreadChatCountsByDoctor.get(item.doctor_id) || 0;
                         return (
                         <TouchableOpacity
-                            className="bg-white rounded-2xl p-4 mb-2 flex-row items-center"
-                            style={{ shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 }}
+                            className="bg-white rounded-[24px] p-4 mb-3 flex-row items-center border border-slate-100"
+                            style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 }}
                             disabled={!patient?.patient_id}
                             onPress={() => handleOpenDoctorHistory(item)}
                         >
@@ -807,10 +1202,10 @@ export default function PatientHomeScreen() {
                                         return (
                                             <View className={`self-start w-[58px] items-center px-2.5 py-1 rounded-full ${appt?.relation_type === 'OTHER' ? 'bg-amber-50 border border-amber-200' : 'bg-sky-50 border border-sky-200'}`}>
                                                 <Text className={`text-[10px] font-semibold text-center ${appt?.relation_type === 'OTHER' ? 'text-amber-700' : 'text-sky-700'}`}>
-                                                    {badgeText}
-                                                </Text>
-                                            </View>
-                                        );
+                                                {badgeText}
+                                            </Text>
+                                        </View>
+                                    );
                                     })()}
                                 </View>
                                 {(() => {
@@ -826,12 +1221,12 @@ export default function PatientHomeScreen() {
                                 <Text className="text-[10px] text-gray-400 mt-1">Tap to view appointment history</Text>
                             </View>
                             <TouchableOpacity
-                            onPress={(e) => {
-                                e?.stopPropagation?.();
-                                handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor', item.profile_pic_url);
-                            }}
-                            className="w-9 h-9 rounded-full bg-blue-50 items-center justify-center relative ml-2"
-                        >
+                                onPress={(e) => {
+                                    e?.stopPropagation?.();
+                                    handleOpenDoctorChat(item.doctor_id, item.doctor_name || 'Doctor', item.profile_pic_url);
+                                }}
+                                className="w-9 h-9 rounded-full bg-blue-50 items-center justify-center relative ml-2"
+                            >
                                 <MessageCircle size={18} color="#1d4ed8" />
                                 {unreadCount > 0 ? (
                                     <View className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 items-center justify-center border border-white">
@@ -844,8 +1239,17 @@ export default function PatientHomeScreen() {
                         </TouchableOpacity>
                     )}}
                     ListEmptyComponent={
-                        <View className="items-center mt-14">
-                            <Text className="text-gray-500">No assigned doctors yet</Text>
+                        <View className="items-center mt-8 rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-6 py-10">
+                            <Text className="text-slate-700 font-semibold">
+                                {selectedSpecializationId
+                                    ? 'No doctor matches found'
+                                    : 'No assigned doctors yet'}
+                            </Text>
+                            <Text className="text-slate-500 text-xs text-center mt-2">
+                                {selectedSpecializationId
+                                    ? 'Try another specialization card above or clear the filter.'
+                                    : 'Doctors linked to your patient profile will appear here for easy chat and follow-up.'}
+                            </Text>
                         </View>
                     }
                 />
@@ -1010,7 +1414,7 @@ export default function PatientHomeScreen() {
                                 { key: 'TODAY', label: 'Today' },
                                 { key: 'TOMORROW', label: 'Tomorrow' },
                                 { key: 'UPCOMING', label: 'Upcoming' },
-                            ] as Array<{ key: HistoryFilter; label: string }>).map((filterItem) => {
+                            ] as { key: HistoryFilter; label: string }[]).map((filterItem) => {
                                 const active = historyFilter === filterItem.key;
                                 return (
                                     <TouchableOpacity

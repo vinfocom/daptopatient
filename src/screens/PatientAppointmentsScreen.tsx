@@ -15,12 +15,20 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
+import { useNavigation, type RouteProp } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CalendarPlus, User, MoreVertical, Search, X, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { getPatientAppointments, createPatientAppointment, updatePatientAppointment } from '../api/patientAppointments';
 import { getPatientProfile } from '../api/auth';
 import { getClinics } from '../api/clinics';
 import { getSlots, getAvailableDates } from '../api/slots';
 import { getAllDoctors } from '../api/doctors';
+import {
+    getSpecializationById,
+    matchesSpecialization,
+    matchesSpecializationQuery,
+} from '../config/careMappings';
+import type { PatientTabParamList } from '../navigation/types';
 
 type AppointmentItem = {
     appointment_id: number;
@@ -49,6 +57,12 @@ type DoctorOption = {
     specialization?: string | null;
     profile_pic_url?: string | null;
     status?: string | null;
+};
+
+type BookingIntent = NonNullable<PatientTabParamList['PatientAppointments']>['bookingIntent'];
+type AppointmentAction = NonNullable<PatientTabParamList['PatientAppointments']>['appointmentAction'];
+type Props = {
+    route: RouteProp<PatientTabParamList, 'PatientAppointments'>;
 };
 
 const toYMD = (value?: string) => {
@@ -112,8 +126,9 @@ const getRelationBadgeText = (item?: AppointmentItem | null, relationTypeOverrid
 
 const normalizeName = (value?: string | null) => String(value || '').trim().toLowerCase();
 
-export default function PatientAppointmentsScreen() {
+export default function PatientAppointmentsScreen({ route }: Props) {
     type BookingFor = 'SELF' | 'OTHER';
+    const navigation = useNavigation<BottomTabNavigationProp<PatientTabParamList, 'PatientAppointments'>>();
     const [loading, setLoading] = useState(true);
     const [cancelling, setCancelling] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -132,6 +147,8 @@ export default function PatientAppointmentsScreen() {
     const [selectedAppointment, setSelectedAppointment] = useState<AppointmentItem | null>(null);
     const [showDoctorSearch, setShowDoctorSearch] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [bookingIntent, setBookingIntent] = useState<BookingIntent>(route.params?.bookingIntent);
+    const [appointmentAction, setAppointmentAction] = useState<AppointmentAction>(route.params?.appointmentAction);
     const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
     const [loadingDates, setLoadingDates] = useState(false);
     const [activeTab, setActiveTab] = useState<'UPCOMING' | 'PAST'>('UPCOMING');
@@ -152,6 +169,35 @@ export default function PatientAppointmentsScreen() {
         booking_for: 'SELF' as BookingFor,
         patient_name: '',
     });
+    const intentSpecialization = useMemo(
+        () => getSpecializationById(bookingIntent?.specializationId),
+        [bookingIntent?.specializationId]
+    );
+
+    const clearBookingIntent = useCallback(() => {
+        setBookingIntent(undefined);
+        navigation.setParams({ bookingIntent: undefined });
+    }, [navigation]);
+
+    const clearAppointmentAction = useCallback(() => {
+        setAppointmentAction(undefined);
+        navigation.setParams({ appointmentAction: undefined });
+    }, [navigation]);
+
+    const resetBookingForm = useCallback((nextPatientName: string) => {
+        setForm({
+            doctor_id: '',
+            clinic_id: '',
+            date: '',
+            time: '',
+            booking_for: 'SELF',
+            patient_name: nextPatientName,
+        });
+        setSelectedAppointment(null);
+        setShowDoctorSearch(false);
+        setSearchQuery('');
+        setAvailableDates(new Set());
+    }, []);
 
     const loadAll = useCallback(async () => {
         const [apptsRes, profileRes, clinicsRes, doctorsRes] = await Promise.all([
@@ -198,6 +244,40 @@ export default function PatientAppointmentsScreen() {
     useEffect(() => {
         loadAll().catch(() => undefined).finally(() => setLoading(false));
     }, [loadAll]);
+
+    useEffect(() => {
+        setBookingIntent(route.params?.bookingIntent);
+    }, [route.params?.bookingIntent]);
+
+    useEffect(() => {
+        setAppointmentAction(route.params?.appointmentAction);
+    }, [route.params?.appointmentAction]);
+
+    useEffect(() => {
+        if (!bookingIntent || loading) return;
+        if (!intentSpecialization && !bookingIntent.specializationQuery) {
+            Alert.alert('Invalid care path', 'This booking shortcut is no longer mapped. Please choose a specialization again.');
+            clearBookingIntent();
+            return;
+        }
+        resetBookingForm(patientName);
+        setOpen(true);
+    }, [bookingIntent, clearBookingIntent, intentSpecialization, loading, patientName, resetBookingForm]);
+
+    useEffect(() => {
+        if (!appointmentAction || loading || items.length === 0) return;
+        if (appointmentAction.mode !== 'reschedule') return;
+
+        const target = items.find((item) => item.appointment_id === appointmentAction.appointmentId);
+        if (!target) {
+            Alert.alert('Appointment not found', 'Unable to find the selected appointment for rescheduling.');
+            clearAppointmentAction();
+            return;
+        }
+
+        handleReschedule(target);
+        clearAppointmentAction();
+    }, [appointmentAction, clearAppointmentAction, handleReschedule, items, loading]);
 
     useEffect(() => {
         if (!form.date || !form.clinic_id) {
@@ -303,8 +383,13 @@ export default function PatientAppointmentsScreen() {
                 Alert.alert('Success', 'Appointment booked');
             }
             setOpen(false);
-            setForm({ doctor_id: '', clinic_id: '', date: '', time: '', booking_for: 'SELF', patient_name: patientName });
-            setSelectedAppointment(null);
+            resetBookingForm(patientName);
+            const shouldReturnHome = bookingIntent?.returnTo === 'home';
+            clearBookingIntent();
+            clearAppointmentAction();
+            if (shouldReturnHome) {
+                navigation.navigate('PatientHome', { clearSpecializationSelection: true });
+            }
             await loadAll();
         } catch (error: any) {
             Alert.alert('Error', error?.response?.data?.error || 'Failed to process appointment');
@@ -379,7 +464,7 @@ export default function PatientAppointmentsScreen() {
         ]);
     };
 
-    const handleReschedule = (item: AppointmentItem) => {
+    const handleReschedule = useCallback((item: AppointmentItem) => {
         setSelectedAppointment(item);
         setForm({
             doctor_id: String(item.doctor?.doctor_id || ''),
@@ -390,15 +475,16 @@ export default function PatientAppointmentsScreen() {
             patient_name: item.patient?.full_name || (item.relation_type === 'OTHER' ? otherPatientName : patientName),
         });
         setOpen(true);
-    };
+    }, [otherPatientName, patientName]);
 
     const handleCloseModal = () => {
         setOpen(false);
-        setSelectedAppointment(null);
-        setForm({ doctor_id: '', clinic_id: '', date: '', time: '', booking_for: 'SELF', patient_name: patientName });
-        setShowDoctorSearch(false);
-        setSearchQuery('');
-        setAvailableDates(new Set());
+        resetBookingForm(patientName);
+        clearBookingIntent();
+        clearAppointmentAction();
+        if (bookingIntent?.returnTo === 'home') {
+            navigation.navigate('PatientHome', { clearSpecializationSelection: true });
+        }
     };
 
     // ── Inline Calendar helpers ──────────────────────────────────────────────
@@ -500,14 +586,84 @@ export default function PatientAppointmentsScreen() {
     };
 
     const filteredDoctors = useMemo(() => {
-        if (!searchQuery.trim()) return doctors;
+        const intentOk = (doctor: DoctorOption) =>
+            bookingIntent?.specializationId
+                ? matchesSpecialization(doctor.specialization, bookingIntent.specializationId)
+                : bookingIntent?.specializationQuery
+                    ? matchesSpecializationQuery(doctor.specialization, bookingIntent.specializationQuery)
+                : true;
+        if (!searchQuery.trim()) return doctors.filter(intentOk);
         const q = searchQuery.toLowerCase();
         return doctors.filter((d) => {
+            if (!intentOk(d)) return false;
             const doctorName = String(d.doctor_name || '').toLowerCase();
             const specialization = String(d.specialization || '').toLowerCase();
             return doctorName.includes(q) || specialization.includes(q);
         });
-    }, [doctors, searchQuery]);
+    }, [bookingIntent?.specializationId, bookingIntent?.specializationQuery, doctors, searchQuery]);
+    const matchedIntentDoctorCount = useMemo(
+        () => bookingIntent?.specializationId
+            ? doctors.filter((doctor) => matchesSpecialization(doctor.specialization, bookingIntent.specializationId)).length
+            : bookingIntent?.specializationQuery
+                ? doctors.filter((doctor) => matchesSpecializationQuery(doctor.specialization, bookingIntent.specializationQuery)).length
+            : doctors.length,
+        [bookingIntent?.specializationId, bookingIntent?.specializationQuery, doctors]
+    );
+    const availableClinicsForDoctor = useMemo(() => {
+        if (!form.doctor_id) return [] as any[];
+        return allClinics.filter((clinic) => String(clinic?.doctor_id || '') === String(form.doctor_id));
+    }, [allClinics, form.doctor_id]);
+
+    useEffect(() => {
+        if (!open || selectedAppointment || !bookingIntent) return;
+        if (form.doctor_id) return;
+        if (filteredDoctors.length !== 1) return;
+
+        setForm((prev) => ({
+            ...prev,
+            doctor_id: String(filteredDoctors[0].doctor_id),
+            clinic_id: '',
+            date: '',
+            time: '',
+        }));
+    }, [bookingIntent, filteredDoctors, form.doctor_id, open, selectedAppointment]);
+
+    useEffect(() => {
+        if (!form.doctor_id) {
+            if (!form.clinic_id && !form.date && !form.time) return;
+            setForm((prev) => ({ ...prev, clinic_id: '', date: '', time: '' }));
+            return;
+        }
+
+        const clinicStillValid = availableClinicsForDoctor.some(
+            (clinic) => String(clinic?.clinic_id || '') === String(form.clinic_id)
+        );
+
+        if (form.clinic_id && !clinicStillValid) {
+            setForm((prev) => ({ ...prev, clinic_id: '', date: '', time: '' }));
+            return;
+        }
+
+        if (!open || selectedAppointment || !bookingIntent) return;
+        if (form.clinic_id) return;
+        if (availableClinicsForDoctor.length !== 1) return;
+
+        setForm((prev) => ({
+            ...prev,
+            clinic_id: String(availableClinicsForDoctor[0].clinic_id),
+            date: '',
+            time: '',
+        }));
+    }, [
+        availableClinicsForDoctor,
+        bookingIntent,
+        form.clinic_id,
+        form.date,
+        form.doctor_id,
+        form.time,
+        open,
+        selectedAppointment,
+    ]);
 
 
     if (loading) {
@@ -528,7 +684,7 @@ export default function PatientAppointmentsScreen() {
                             <Text className="text-blue-100 text-sm">Patient Portal</Text>
                             <Text className="text-white text-2xl font-bold mt-1">My Appointments</Text>
                         </View>
-                        <TouchableOpacity onPress={() => { setSelectedAppointment(null); setForm({ doctor_id: '', clinic_id: '', date: '', time: '', booking_for: 'SELF', patient_name: patientName }); setOpen(true); }} className="bg-white rounded-full p-3">
+                        <TouchableOpacity onPress={() => { clearBookingIntent(); clearAppointmentAction(); resetBookingForm(patientName); setOpen(true); }} className="bg-white rounded-full p-3">
                             <CalendarPlus size={20} color="#1d4ed8" />
                         </TouchableOpacity>
                     </View>
@@ -685,6 +841,32 @@ export default function PatientAppointmentsScreen() {
                         </Text>
                         <ScrollView>
                             <View className="space-y-4">
+                                {!selectedAppointment && bookingIntent ? (
+                                    <View className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3">
+                                        <View className="flex-row items-start justify-between">
+                                            <View className="flex-1 pr-3">
+                                                <Text className="text-[11px] font-semibold uppercase tracking-wider text-blue-700">
+                                                    From specialization
+                                                </Text>
+                                                <Text className="text-sm font-bold text-blue-900 mt-1">
+                                                    {intentSpecialization?.label || bookingIntent.specializationLabel || 'Selected care path'}
+                                                </Text>
+                                                <Text className="text-xs text-blue-700 mt-1">
+                                                    {matchedIntentDoctorCount > 0
+                                                        ? 'Doctor selection is filtered so you can complete booking faster.'
+                                                        : 'No doctors currently match this care path. Clear the filter to browse all doctors.'}
+                                                </Text>
+                                            </View>
+                                            <TouchableOpacity
+                                                onPress={clearBookingIntent}
+                                                className="rounded-full bg-white px-3 py-1.5 border border-blue-200"
+                                            >
+                                                <Text className="text-[11px] font-semibold text-blue-700">Clear</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                ) : null}
+
                                 {!selectedAppointment && (
                                     <View>
                                         <Text className="text-sm font-bold text-gray-700 mb-2">Booking For</Text>
@@ -712,6 +894,11 @@ export default function PatientAppointmentsScreen() {
                                                 );
                                             })}
                                         </View>
+                                        {!patientName.trim() ? (
+                                            <Text className="text-xs text-amber-600 mt-2">
+                                                Your self profile name is missing. Update it in Profile or use Other for this booking.
+                                            </Text>
+                                        ) : null}
                                     </View>
                                 )}
 
@@ -726,6 +913,10 @@ export default function PatientAppointmentsScreen() {
                                     />
                                     {selectedAppointment ? (
                                         <Text className="text-xs text-gray-400 mt-2">Relation is fixed for existing appointments.</Text>
+                                    ) : form.booking_for === 'SELF' && !patientName.trim() ? (
+                                        <Text className="text-xs text-amber-600 mt-2">
+                                            Self booking needs your profile name. You can update Profile first or switch to Other.
+                                        </Text>
                                     ) : form.booking_for === 'SELF' ? (
                                         <Text className="text-xs text-gray-400 mt-2">Self name comes from your profile settings.</Text>
                                     ) : otherPatientName.trim() ? (
@@ -740,14 +931,37 @@ export default function PatientAppointmentsScreen() {
                                     <TouchableOpacity
                                         onPress={() => { setShowDoctorSearch(true); setSearchQuery(''); }}
                                         className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex-row justify-between items-center h-[50px]"
-                                    >
-                                        <Text className={form.doctor_id ? "text-gray-800" : "text-gray-400"}>
-                                            {form.doctor_id
-                                                ? formatDoctorName(doctors.find(d => String(d.doctor_id) === form.doctor_id)?.doctor_name)
-                                                : "Select a Doctor"}
-                                        </Text>
+                                        >
+                                            <Text className={form.doctor_id ? "text-gray-800" : "text-gray-400"}>
+                                                {form.doctor_id
+                                                    ? formatDoctorName(doctors.find(d => String(d.doctor_id) === form.doctor_id)?.doctor_name)
+                                                : intentSpecialization?.label
+                                                    ? `Select ${intentSpecialization.label}`
+                                                    : bookingIntent?.specializationLabel
+                                                        ? `Select ${bookingIntent.specializationLabel}`
+                                                    : "Select a Doctor"}
+                                            </Text>
                                         <Search size={16} color="#6b7280" />
                                     </TouchableOpacity>
+                                    {!form.doctor_id && intentSpecialization ? (
+                                        <Text className="text-xs text-gray-400 mt-2">
+                                            Showing doctors for {intentSpecialization.label}. Clear the entry filter above to browse all doctors.
+                                        </Text>
+                                    ) : !form.doctor_id && bookingIntent?.specializationLabel ? (
+                                        <Text className="text-xs text-gray-400 mt-2">
+                                            Showing doctors for {bookingIntent.specializationLabel}. Clear the entry filter above to browse all doctors.
+                                        </Text>
+                                    ) : null}
+                                    {!selectedAppointment && bookingIntent && matchedIntentDoctorCount > 1 && !form.doctor_id ? (
+                                        <Text className="text-xs text-blue-600 mt-2">
+                                            {matchedIntentDoctorCount} doctors match this specialization. Choose the doctor you prefer.
+                                        </Text>
+                                    ) : null}
+                                    {!selectedAppointment && bookingIntent && filteredDoctors.length === 1 && form.doctor_id ? (
+                                        <Text className="text-xs text-emerald-600 mt-2">
+                                            Doctor auto-selected from your specialization entry.
+                                        </Text>
+                                    ) : null}
                                 </View>
 
                                 <View>
@@ -768,6 +982,16 @@ export default function PatientAppointmentsScreen() {
                                                 ))}
                                         </Picker>
                                     </View>
+                                    {!selectedAppointment && bookingIntent && availableClinicsForDoctor.length === 1 && form.clinic_id ? (
+                                        <Text className="text-xs text-emerald-600 mt-2">
+                                            Clinic auto-selected because only one clinic is available for this doctor.
+                                        </Text>
+                                    ) : null}
+                                    {form.doctor_id && availableClinicsForDoctor.length === 0 ? (
+                                        <Text className="text-xs text-amber-600 mt-2">
+                                            No clinics are currently linked to this doctor. Please choose another doctor.
+                                        </Text>
+                                    ) : null}
                                 </View>
 
                                 <View>
@@ -779,7 +1003,13 @@ export default function PatientAppointmentsScreen() {
                                     </View>
                                     {(!form.doctor_id || !form.clinic_id) ? (
                                         <View className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-4 items-center">
-                                            <Text className="text-gray-400 text-sm">Select doctor and clinic first</Text>
+                                            <Text className="text-gray-400 text-sm">
+                                                {!form.doctor_id
+                                                    ? 'Select doctor first'
+                                                    : availableClinicsForDoctor.length === 0
+                                                        ? 'No clinics available for this doctor'
+                                                        : 'Select clinic first'}
+                                            </Text>
                                         </View>
                                     ) : renderCalendar()}
                                 </View>
@@ -794,9 +1024,16 @@ export default function PatientAppointmentsScreen() {
                                         ) : null}
                                     </View>
                                     {slots.length === 0 ? (
-                                        <Text className="text-gray-400 text-sm">
-                                            {form.clinic_id && form.date ? 'No slots available for this date' : 'Select doctor, clinic and date first'}
-                                        </Text>
+                                        <View className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-4">
+                                            <Text className="text-sm font-medium text-gray-700">
+                                                {form.clinic_id && form.date ? 'No slots available for this date' : 'Select doctor, clinic and date first'}
+                                            </Text>
+                                            <Text className="text-xs text-gray-400 mt-1">
+                                                {form.clinic_id && form.date
+                                                    ? 'Try another date or change the doctor/clinic to see more slot options.'
+                                                    : 'Slots will appear here after you choose a doctor, clinic, and date.'}
+                                            </Text>
+                                        </View>
                                     ) : (() => {
                                         const toMin = (s: string) => {
                                             const [h, m] = s.split(':').map(Number);
@@ -915,7 +1152,14 @@ export default function PatientAppointmentsScreen() {
                 <View className="flex-1 justify-end bg-black/50">
                     <View className="bg-white rounded-t-3xl p-6 h-[80%]">
                         <View className="flex-row items-center justify-between mb-4">
-                            <Text className="text-xl font-bold text-gray-800">Select Doctor</Text>
+                            <View>
+                                <Text className="text-xl font-bold text-gray-800">Select Doctor</Text>
+                                {intentSpecialization || bookingIntent?.specializationLabel ? (
+                                    <Text className="text-xs text-gray-500 mt-1">
+                                        Filtered by {intentSpecialization?.label || bookingIntent?.specializationLabel}
+                                    </Text>
+                                ) : null}
+                            </View>
                             <TouchableOpacity onPress={() => setShowDoctorSearch(false)} className="bg-gray-100 p-2 rounded-full">
                                 <X size={20} color="#4b5563" />
                             </TouchableOpacity>
@@ -940,7 +1184,11 @@ export default function PatientAppointmentsScreen() {
                         <ScrollView className="mt-2 text-gray-800">
                             {filteredDoctors.length === 0 ? (
                                 <View className="py-8 items-center">
-                                    <Text className="text-gray-500 text-center">No doctors found matching &quot;{searchQuery}&quot;</Text>
+                                    <Text className="text-gray-500 text-center">
+                                        {intentSpecialization || bookingIntent?.specializationLabel
+                                            ? `No doctors found for ${intentSpecialization?.label || bookingIntent?.specializationLabel}${searchQuery ? ` matching "${searchQuery}"` : ''}`
+                                            : `No doctors found matching "${searchQuery}"`}
+                                    </Text>
                                 </View>
                             ) : (
                                 filteredDoctors.map((item) => (

@@ -1,8 +1,27 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
+import type { CareSpecializationId } from '../config/careMappings';
 
 export type PatientTabParamList = {
-  PatientHome: undefined;
-  PatientAppointments: undefined;
+  PatientHome:
+    | {
+        clearSpecializationSelection?: boolean;
+      }
+    | undefined;
+  PatientAppointments:
+    | {
+        bookingIntent?: {
+          source: "specialization";
+          returnTo?: "home";
+          specializationId?: CareSpecializationId;
+          specializationLabel: string;
+          specializationQuery: string;
+        };
+        appointmentAction?: {
+          mode: "reschedule";
+          appointmentId: number;
+        };
+      }
+    | undefined;
   PatientAnnouncements: undefined;
 };
 
