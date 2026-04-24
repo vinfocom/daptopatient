@@ -37,6 +37,12 @@ export interface LoginChallenge {
   expiresAt: string;
 }
 
+export interface PatientLoginAvailability {
+  exists: boolean;
+  hasPassword: boolean;
+  patient?: PatientMeUser | null;
+}
+
 export const getLoginChallenge = async (): Promise<LoginChallenge> => {
   const response = await client.get('/auth/login-challenge');
   return response.data;
@@ -49,20 +55,46 @@ export const verifyLoginChallenge = async (challengeId: string, answer: string) 
 
 export const patientLogin = async (
   phone: string,
+  password: string,
   challengeId: string,
-  challengeVerificationToken: string
+  challengeVerificationToken: string,
+  options?: {
+    setPassword?: string;
+    confirmPassword?: string;
+  }
 ) => {
   const response = await client.post('/patient-auth/login', {
     phone,
+    password,
+    setPassword: options?.setPassword,
+    confirmPassword: options?.confirmPassword,
     challengeId,
     challengeVerificationToken,
   });
   return response.data;
 };
 
+export const checkPatientLoginAvailability = async (phone: string) => {
+  const response = await client.get('/patient-auth/login', {
+    params: { phone },
+  });
+  return response.data as PatientLoginAvailability;
+};
+
+export const resetPatientPassword = async (data: {
+  phone: string;
+  newPassword: string;
+  confirmPassword: string;
+}) => {
+  const response = await client.post('/patient-auth/forgot-password', data);
+  return response.data;
+};
+
 export const patientSignup = async (data: {
   full_name: string;
   phone?: string;
+  password: string;
+  confirmPassword: string;
   age?: number | string;
   gender?: string;
   challengeId: string;

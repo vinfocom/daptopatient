@@ -16,10 +16,10 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ArrowRight, ShieldCheck, Stethoscope, Mail, RefreshCw, Calculator, Check, UserPlus } from 'lucide-react-native';
+import { ArrowRight, ShieldCheck, Stethoscope, Mail, RefreshCw, Calculator, Check, UserPlus, Eye, EyeOff } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 
-import { getLoginChallenge, patientLogin, savePatientPushToken, verifyLoginChallenge } from '../api/auth';
+import { checkPatientLoginAvailability, getLoginChallenge, patientLogin, resetPatientPassword, savePatientPushToken, verifyLoginChallenge } from '../api/auth';
 import { setAuthSession } from '../api/token';
 import { useAuthSession } from '../context/AuthSessionContext';
 import { registerForPushNotificationsAsync } from '../hooks/usePushNotifications';
@@ -46,8 +46,21 @@ export default function LoginScreen() {
   const { refreshSession } = useAuthSession();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
+  const [requiresPasswordSetup, setRequiresPasswordSetup] = useState(false);
+  const [phoneChecked, setPhoneChecked] = useState(false);
+  const [checkingPhone, setCheckingPhone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [identifierFocused, setIdentifierFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+  const [newPasswordFocused, setNewPasswordFocused] = useState(false);
+  const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [challengeQuestion, setChallengeQuestion] = useState('');
   const [challengeId, setChallengeId] = useState('');
   const [challengeAnswer, setChallengeAnswer] = useState('');
@@ -67,9 +80,64 @@ export default function LoginScreen() {
   const verificationFontSize = isVeryCompactScreen || isLargeText ? 24 : 28;
 
   const canAttemptLogin = useMemo(
-    () => Boolean(identifier.trim() && challengeAnswer.trim()),
-    [challengeAnswer, identifier]
+    () =>
+      Boolean(
+        !forgotPasswordMode &&
+        phoneChecked &&
+        identifier.trim() &&
+        challengeAnswer.trim() &&
+        (requiresPasswordSetup
+          ? newPassword.trim() && confirmPassword.trim()
+          : password.trim())
+      ),
+    [challengeAnswer, confirmPassword, forgotPasswordMode, identifier, newPassword, password, phoneChecked, requiresPasswordSetup]
   );
+  const canResetPassword = useMemo(
+    () => Boolean(forgotPasswordMode && phoneChecked && identifier.trim() && newPassword.trim() && confirmPassword.trim()),
+    [confirmPassword, forgotPasswordMode, identifier, newPassword, phoneChecked]
+  );
+  const passwordsMatch = useMemo(
+    () => Boolean(newPassword.trim() && confirmPassword.trim() && newPassword === confirmPassword),
+    [confirmPassword, newPassword]
+  );
+  const passwordsMismatch = useMemo(
+    () => Boolean(confirmPassword.trim() && newPassword !== confirmPassword),
+    [confirmPassword, newPassword]
+  );
+
+  const resetDetectedFlow = () => {
+    setPhoneChecked(false);
+    setRequiresPasswordSetup(false);
+    setPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+    setChallengeVerified(false);
+    setChallengeVerificationToken('');
+    setChallengeStatus('idle');
+    setChallengeAnswer('');
+    setAnswerInputActive(false);
+  };
+
+  const switchToForgotPassword = () => {
+    setForgotPasswordMode(true);
+    setPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+  };
+
+  const switchToLogin = () => {
+    setForgotPasswordMode(false);
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+  };
 
   const loadLoginChallenge = async (clearAnswer = true) => {
     setChallengeLoading(true);
@@ -147,6 +215,106 @@ export default function LoginScreen() {
     };
   }, []);
 
+  const handleContinueWithPhone = async () => {
+    if (!identifier.trim()) {
+      Alert.alert('Error', 'Please enter phone number');
+      return;
+    }
+
+    setCheckingPhone(true);
+    try {
+      const result = await checkPatientLoginAvailability(identifier.trim());
+      if (!result?.exists) {
+        Alert.alert('Patient Not Found', 'Patient not found. Please create an account.');
+        return;
+      }
+
+      if (forgotPasswordMode) {
+        if (!result.hasPassword) {
+          Alert.alert('Set Password', 'This account does not have a password yet. Please use the normal set password flow.');
+          setForgotPasswordMode(false);
+          setRequiresPasswordSetup(true);
+          setPhoneChecked(true);
+          await loadLoginChallenge();
+          return;
+        }
+        setRequiresPasswordSetup(false);
+        setPhoneChecked(true);
+        return;
+      }
+
+      setRequiresPasswordSetup(!result.hasPassword);
+      setPhoneChecked(true);
+      setChallengeVerified(false);
+      setChallengeVerificationToken('');
+      setChallengeStatus('idle');
+      setChallengeAnswer('');
+      setAnswerInputActive(false);
+      await loadLoginChallenge(false);
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        'Unable to check this phone number right now. Please try again.';
+      Alert.alert('Unable to Continue', message);
+    } finally {
+      setCheckingPhone(false);
+    }
+  };
+
+  const handleForgotPasswordReset = async () => {
+    setLoading(true);
+    try {
+      if (!identifier.trim()) {
+        Alert.alert('Error', 'Please enter phone number');
+        return;
+      }
+
+      if (!newPassword.trim() || !confirmPassword.trim()) {
+        Alert.alert('Error', 'Please enter new password and confirm password');
+        return;
+      }
+
+      if (newPassword.trim().length < 6) {
+        Alert.alert('Error', 'Password must be at least 6 characters');
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        Alert.alert('Error', 'Password and confirm password must match');
+        return;
+      }
+
+      const response = await resetPatientPassword({
+        phone: identifier.trim(),
+        newPassword: newPassword.trim(),
+        confirmPassword: confirmPassword.trim(),
+      });
+
+      if (!response?.token) {
+        Alert.alert('Error', 'Password reset failed: Invalid patient session');
+        return;
+      }
+
+      await setAuthSession(response.token, 'PATIENT');
+      await registerPatientPushToken(response.token);
+      await refreshSession();
+      navigation.replace('PatientMain');
+    } catch (error: any) {
+      const status = error?.response?.status;
+      let message = error?.response?.data?.error || 'Unable to reset password right now.';
+      if (status === 404) {
+        message = 'Patient not found. Please create an account.';
+      } else if (status === 500) {
+        message = 'Server error. Please try again later.';
+      } else if (!status) {
+        message = 'Network error. Please check your internet connection.';
+      }
+      Alert.alert('Reset Failed', message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLogin = async () => {
     setLoading(true);
     try {
@@ -155,12 +323,45 @@ export default function LoginScreen() {
         return;
       }
 
+      if (!requiresPasswordSetup && !password.trim()) {
+        Alert.alert('Error', 'Please enter password');
+        return;
+      }
+
+      if (requiresPasswordSetup) {
+        if (!newPassword.trim() || !confirmPassword.trim()) {
+          Alert.alert('Error', 'Please set and confirm your password');
+          return;
+        }
+
+        if (newPassword.trim().length < 6) {
+          Alert.alert('Error', 'Password must be at least 6 characters');
+          return;
+        }
+
+        if (newPassword !== confirmPassword) {
+          Alert.alert('Error', 'Password and confirm password must match');
+          return;
+        }
+      }
+
       if (!challengeId || !challengeVerified || !challengeVerificationToken) {
         Alert.alert('Verification Required', 'Please solve and verify the calculation before logging in.');
         return;
       }
 
-      const response = await patientLogin(identifier.trim(), challengeId, challengeVerificationToken);
+      const response = await patientLogin(
+        identifier.trim(),
+        password.trim(),
+        challengeId,
+        challengeVerificationToken,
+        requiresPasswordSetup
+          ? {
+              setPassword: newPassword.trim(),
+              confirmPassword: confirmPassword.trim(),
+            }
+          : undefined
+      );
       if (!response?.token || (response?.patient?.role && response.patient.role !== 'PATIENT')) {
         Alert.alert('Error', 'Login failed: Invalid patient session');
         return;
@@ -175,15 +376,18 @@ export default function LoginScreen() {
       let message = error?.response?.data?.error || 'Login failed. Please check your credentials and try again.';
 
       if (status === 400) {
-        setChallengeVerified(false);
-        await loadLoginChallenge();
-        message = error?.response?.data?.error || 'Verification expired. Please solve the new calculation and try again.';
+        const responseMessage = error?.response?.data?.error || '';
+        if (/calculation|verify/i.test(responseMessage)) {
+          setChallengeVerified(false);
+          await loadLoginChallenge();
+          message = responseMessage || 'Verification expired. Please solve the new calculation and try again.';
+        }
       }
 
       if (status === 404) {
-        message = 'Patient not found. Please check your phone number.';
+        message = 'Patient not found. Please create an account.';
       } else if (status === 401) {
-        message = 'Invalid phone number.';
+        message = 'Invalid phone number or password.';
       } else if (status === 500) {
         message = 'Server error. Please try again later.';
       } else if (!status) {
@@ -244,7 +448,7 @@ export default function LoginScreen() {
                 Patient Portal
               </Text>
               <Text className={`text-blue-200 text-center ${isVeryCompactScreen ? 'text-xs' : 'text-sm'}`}>
-                Sign in to view appointments, chat, and announcements
+                {forgotPasswordMode ? 'Reset your password and continue' : 'Sign in with phone number and verification'}
               </Text>
             </Animated.View>
           </SafeAreaView>
@@ -265,7 +469,15 @@ export default function LoginScreen() {
                 Welcome Back
               </Text>
               <Text className={`text-slate-400 text-center ${isVeryCompactScreen ? 'text-xs' : 'text-sm'}`}>
-                Enter your phone number to continue
+                {!phoneChecked
+                  ? forgotPasswordMode
+                    ? 'Enter your phone number to reset password'
+                    : 'Enter your phone number to continue'
+                  : requiresPasswordSetup
+                    ? 'Set your password once to continue'
+                    : forgotPasswordMode
+                      ? 'Enter your new password to continue'
+                    : 'Enter your password and verification to continue'}
               </Text>
             </View>
 
@@ -295,7 +507,12 @@ export default function LoginScreen() {
                   placeholder="e.g. 9392569600"
                   placeholderTextColor="#9ca3af"
                   value={identifier}
-                  onChangeText={setIdentifier}
+                  onChangeText={(text) => {
+                    setIdentifier(text);
+                    if (phoneChecked) {
+                      resetDetectedFlow();
+                    }
+                  }}
                   autoCapitalize="none"
                   onFocus={() => setIdentifierFocused(true)}
                   onBlur={() => setIdentifierFocused(false)}
@@ -303,6 +520,230 @@ export default function LoginScreen() {
               </View>
             </View>
 
+            {!phoneChecked ? (
+              <TouchableOpacity
+                onPress={() => {
+                  void handleContinueWithPhone();
+                }}
+                disabled={checkingPhone || !identifier.trim()}
+                activeOpacity={0.8}
+                className={`rounded-2xl items-center justify-center ${
+                  isVeryCompactScreen ? 'py-3.5' : 'py-4'
+                } ${checkingPhone || !identifier.trim() ? 'bg-blue-300' : 'bg-blue-600'}`}
+                style={{
+                  shadowColor: '#1d4ed8',
+                  shadowOffset: { width: 0, height: 6 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 12,
+                  elevation: 8,
+                }}
+              >
+                {checkingPhone ? (
+                  <View className="flex-row items-center">
+                    <ActivityIndicator color="#fff" size="small" />
+                    <Text
+                      className={`text-white font-bold ml-3 ${isVeryCompactScreen || isLargeText ? 'text-base' : 'text-lg'}`}
+                      maxFontSizeMultiplier={1.15}
+                    >
+                      Checking...
+                    </Text>
+                  </View>
+                ) : (
+                  <View className="flex-row items-center">
+                    <Text
+                      className={`text-white font-extrabold mr-2 tracking-wide ${
+                        isVeryCompactScreen || isLargeText ? 'text-base' : 'text-lg'
+                      }`}
+                    >
+                      Continue
+                    </Text>
+                    <ArrowRight size={20} color="#fff" />
+                  </View>
+                )}
+              </TouchableOpacity>
+            ) : forgotPasswordMode ? (
+              <>
+                <View className={isVeryCompactScreen ? 'mb-3.5' : 'mb-4'}>
+                  <View className="flex-row items-center justify-between mb-2">
+                    <Text className="text-base font-bold text-gray-700 ml-1">New Password</Text>
+                    <TouchableOpacity
+                      onPress={switchToLogin}
+                      activeOpacity={0.8}
+                    >
+                      <Text className="text-blue-600 font-semibold">Back to Sign In</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View
+                    className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
+                      newPasswordFocused ? 'border-blue-500' : 'border-gray-200'
+                    }`}
+                    style={{
+                      shadowColor: newPasswordFocused ? '#2563eb' : '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: newPasswordFocused ? 0.15 : 0.04,
+                      shadowRadius: 6,
+                      elevation: newPasswordFocused ? 4 : 1,
+                    }}
+                  >
+                    <Mail size={20} color="#64748b" />
+                    <TextInput
+                      className={`flex-1 px-3 text-base text-slate-800 ${isVeryCompactScreen ? 'py-3.5' : 'py-4'}`}
+                      placeholder="Create a new password"
+                      placeholderTextColor="#9ca3af"
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      secureTextEntry={!showNewPassword}
+                      autoCapitalize="none"
+                      onFocus={() => setNewPasswordFocused(true)}
+                      onBlur={() => setNewPasswordFocused(false)}
+                    />
+                    <TouchableOpacity onPress={() => setShowNewPassword((prev) => !prev)} hitSlop={8}>
+                      {showNewPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View className={isVeryCompactScreen ? 'mb-3.5' : 'mb-4'}>
+                  <Text className="text-base font-bold text-gray-700 mb-2 ml-1">Confirm Password</Text>
+                  <View
+                    className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
+                      passwordsMatch ? 'border-emerald-400' : passwordsMismatch ? 'border-red-300' : confirmPasswordFocused ? 'border-blue-500' : 'border-gray-200'
+                    }`}
+                    style={{
+                      shadowColor: confirmPasswordFocused ? '#2563eb' : '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: confirmPasswordFocused ? 0.15 : 0.04,
+                      shadowRadius: 6,
+                      elevation: confirmPasswordFocused ? 4 : 1,
+                    }}
+                  >
+                    <Mail size={20} color="#64748b" />
+                    <TextInput
+                      className={`flex-1 px-3 text-base text-slate-800 ${isVeryCompactScreen ? 'py-3.5' : 'py-4'}`}
+                      placeholder="Re-enter your new password"
+                      placeholderTextColor="#9ca3af"
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry={!showConfirmPassword}
+                      autoCapitalize="none"
+                      onFocus={() => setConfirmPasswordFocused(true)}
+                      onBlur={() => setConfirmPasswordFocused(false)}
+                    />
+                    <TouchableOpacity onPress={() => setShowConfirmPassword((prev) => !prev)} hitSlop={8}>
+                      {showConfirmPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </>
+            ) : !requiresPasswordSetup ? (
+              <View className={isVeryCompactScreen ? 'mb-3.5' : 'mb-4'}>
+                <View className="flex-row items-center justify-between mb-2">
+                  <Text className="text-base font-bold text-gray-700 ml-1">Password</Text>
+                  <TouchableOpacity
+                    onPress={switchToForgotPassword}
+                    activeOpacity={0.8}
+                  >
+                    <Text className="text-blue-600 font-semibold">Forgot Password?</Text>
+                  </TouchableOpacity>
+                </View>
+                <View
+                  className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
+                    passwordFocused ? 'border-blue-500' : 'border-gray-200'
+                  }`}
+                  style={{
+                    shadowColor: passwordFocused ? '#2563eb' : '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: passwordFocused ? 0.15 : 0.04,
+                    shadowRadius: 6,
+                    elevation: passwordFocused ? 4 : 1,
+                  }}
+                >
+                  <Mail size={20} color="#64748b" />
+                  <TextInput
+                    className={`flex-1 px-3 text-base text-slate-800 ${isVeryCompactScreen ? 'py-3.5' : 'py-4'}`}
+                    placeholder="Enter your password"
+                    placeholderTextColor="#9ca3af"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    onFocus={() => setPasswordFocused(true)}
+                    onBlur={() => setPasswordFocused(false)}
+                  />
+                  <TouchableOpacity onPress={() => setShowPassword((prev) => !prev)} hitSlop={8}>
+                    {showPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <>
+                <View className={isVeryCompactScreen ? 'mb-3.5' : 'mb-4'}>
+                  <Text className="text-base font-bold text-gray-700 mb-2 ml-1">Set Password</Text>
+                  <View
+                    className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
+                      newPasswordFocused ? 'border-blue-500' : 'border-gray-200'
+                    }`}
+                    style={{
+                      shadowColor: newPasswordFocused ? '#2563eb' : '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: newPasswordFocused ? 0.15 : 0.04,
+                      shadowRadius: 6,
+                      elevation: newPasswordFocused ? 4 : 1,
+                    }}
+                  >
+                    <Mail size={20} color="#64748b" />
+                    <TextInput
+                      className={`flex-1 px-3 text-base text-slate-800 ${isVeryCompactScreen ? 'py-3.5' : 'py-4'}`}
+                      placeholder="Create a password"
+                      placeholderTextColor="#9ca3af"
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      secureTextEntry={!showNewPassword}
+                      autoCapitalize="none"
+                      onFocus={() => setNewPasswordFocused(true)}
+                      onBlur={() => setNewPasswordFocused(false)}
+                    />
+                    <TouchableOpacity onPress={() => setShowNewPassword((prev) => !prev)} hitSlop={8}>
+                      {showNewPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View className={isVeryCompactScreen ? 'mb-3.5' : 'mb-4'}>
+                  <Text className="text-base font-bold text-gray-700 mb-2 ml-1">Re-enter Password</Text>
+                  <View
+                    className={`flex-row items-center bg-white rounded-2xl px-4 border-2 ${
+                      passwordsMatch ? 'border-emerald-400' : passwordsMismatch ? 'border-red-300' : confirmPasswordFocused ? 'border-blue-500' : 'border-gray-200'
+                    }`}
+                    style={{
+                      shadowColor: confirmPasswordFocused ? '#2563eb' : '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: confirmPasswordFocused ? 0.15 : 0.04,
+                      shadowRadius: 6,
+                      elevation: confirmPasswordFocused ? 4 : 1,
+                    }}
+                  >
+                    <Mail size={20} color="#64748b" />
+                    <TextInput
+                      className={`flex-1 px-3 text-base text-slate-800 ${isVeryCompactScreen ? 'py-3.5' : 'py-4'}`}
+                      placeholder="Re-enter your password"
+                      placeholderTextColor="#9ca3af"
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry={!showConfirmPassword}
+                      autoCapitalize="none"
+                      onFocus={() => setConfirmPasswordFocused(true)}
+                      onBlur={() => setConfirmPasswordFocused(false)}
+                    />
+                    <TouchableOpacity onPress={() => setShowConfirmPassword((prev) => !prev)} hitSlop={8}>
+                      {showConfirmPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </>
+            )}
+
+            {phoneChecked && !forgotPasswordMode ? (
             <View className="mb-2">
               <View className="flex-row items-center justify-between mb-2">
                 <Text className="text-base font-bold text-gray-700 ml-1">Quick Verification</Text>
@@ -397,7 +838,9 @@ export default function LoginScreen() {
                 </View>
               </View>
             </View>
+            ) : null}
 
+            {phoneChecked && !forgotPasswordMode ? (
             <TouchableOpacity
               onPress={handleLogin}
               disabled={loading || !canAttemptLogin}
@@ -441,6 +884,48 @@ export default function LoginScreen() {
                 </View>
               )}
             </TouchableOpacity>
+            ) : null}
+
+            {phoneChecked && forgotPasswordMode ? (
+            <TouchableOpacity
+              onPress={handleForgotPasswordReset}
+              disabled={loading || !canResetPassword}
+              activeOpacity={0.8}
+              className={`rounded-2xl items-center justify-center ${
+                isVeryCompactScreen ? 'py-3.5' : 'py-4'
+              } ${loading || !canResetPassword ? 'bg-blue-300' : 'bg-blue-600'}`}
+              style={{
+                shadowColor: '#1d4ed8',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.4,
+                shadowRadius: 12,
+                elevation: 8,
+              }}
+            >
+              {loading ? (
+                <View className="flex-row items-center">
+                  <ActivityIndicator color="#fff" size="small" />
+                  <Text
+                    className={`text-white font-bold ml-3 ${isVeryCompactScreen || isLargeText ? 'text-base' : 'text-lg'}`}
+                    maxFontSizeMultiplier={1.15}
+                  >
+                    Resetting...
+                  </Text>
+                </View>
+              ) : (
+                <View className="flex-row items-center">
+                  <Text
+                    className={`text-white font-extrabold mr-2 tracking-wide ${
+                      isVeryCompactScreen || isLargeText ? 'text-base' : 'text-lg'
+                    }`}
+                  >
+                    Reset Password
+                  </Text>
+                  <ArrowRight size={20} color="#fff" />
+                </View>
+              )}
+            </TouchableOpacity>
+            ) : null}
 
             <TouchableOpacity
               onPress={() => navigation.navigate('Signup')}

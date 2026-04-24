@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ArrowLeft, ArrowRight, Calculator, CalendarDays, Check, ChevronLeft, ChevronRight, RefreshCw, ShieldCheck, UserPlus } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, Calculator, CalendarDays, Check, ChevronLeft, ChevronRight, RefreshCw, ShieldCheck, UserPlus, Eye, EyeOff } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 
 import { checkPatientSignupAvailability, getLoginChallenge, patientSignup, savePatientPushToken, verifyLoginChallenge } from '../api/auth';
@@ -93,6 +93,10 @@ export default function SignupScreen() {
   const [step, setStep] = useState<1 | 2>(1);
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [dob, setDob] = useState('');
   const [gender, setGender] = useState('');
   const [loading, setLoading] = useState(false);
@@ -116,7 +120,18 @@ export default function SignupScreen() {
     () => Boolean(fullName.trim()) && Boolean(phone.trim()) && Boolean(challengeAnswer.trim()),
     [challengeAnswer, fullName, phone]
   );
-  const canContinue = useMemo(() => Boolean(phone.trim()), [phone]);
+  const canContinue = useMemo(
+    () => Boolean(phone.trim() && password.trim() && confirmPassword.trim()),
+    [confirmPassword, password, phone]
+  );
+  const passwordsMatch = useMemo(
+    () => Boolean(password.trim() && confirmPassword.trim() && password === confirmPassword),
+    [confirmPassword, password]
+  );
+  const passwordsMismatch = useMemo(
+    () => Boolean(confirmPassword.trim() && password !== confirmPassword),
+    [confirmPassword, password]
+  );
   const computedAge = useMemo(() => calculateAgeFromDob(dob), [dob]);
   const maxDob = getTodayYMD();
   const selectedDobDate = useMemo(
@@ -343,6 +358,21 @@ export default function SignupScreen() {
         return;
       }
 
+      if (!password.trim() || !confirmPassword.trim()) {
+        Alert.alert('Error', 'Please enter password and confirm password');
+        return;
+      }
+
+      if (password.trim().length < 6) {
+        Alert.alert('Error', 'Password must be at least 6 characters');
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        Alert.alert('Error', 'Password and confirm password must match');
+        return;
+      }
+
       if (!dob || computedAge == null) {
         Alert.alert('Error', 'Please select a valid date of birth');
         return;
@@ -356,6 +386,8 @@ export default function SignupScreen() {
       const response = await patientSignup({
         full_name: fullName.trim(),
         phone: phone.trim() || undefined,
+        password: password.trim(),
+        confirmPassword: confirmPassword.trim(),
         age: computedAge,
         gender: gender || undefined,
         challengeId,
@@ -407,6 +439,21 @@ export default function SignupScreen() {
   const handleContinue = async () => {
     if (!phone.trim()) {
       Alert.alert('Error', 'Please enter phone number');
+      return;
+    }
+
+    if (!password.trim() || !confirmPassword.trim()) {
+      Alert.alert('Error', 'Please enter password and confirm password');
+      return;
+    }
+
+    if (password.trim().length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Error', 'Password and confirm password must match');
       return;
     }
 
@@ -472,7 +519,7 @@ export default function SignupScreen() {
               </Text>
               <Text className="text-blue-200 text-center text-sm">
                 {step === 1
-                  ? 'Sign up as a patient with your phone number'
+                  ? 'Sign up with your phone number and password'
                   : 'Add your details to finish creating your account'}
               </Text>
             </Animated.View>
@@ -491,7 +538,7 @@ export default function SignupScreen() {
                       Welcome
                     </Text>
                     <Text className="text-slate-400 text-center text-sm">
-                      Enter your phone number to continue
+                      Enter your phone number and create a password
                     </Text>
                   </View>
 
@@ -506,6 +553,46 @@ export default function SignupScreen() {
                         placeholderTextColor="#9ca3af"
                         keyboardType="phone-pad"
                       />
+                    </View>
+                  </View>
+
+                  <View className="mb-0.5">
+                    <Text className="text-base font-bold text-gray-700 mb-2 ml-1">Password</Text>
+                    <View className="bg-white rounded-2xl px-4 border-2 border-gray-200 flex-row items-center">
+                      <TextInput
+                        className="flex-1 text-gray-800 text-base py-4"
+                        value={password}
+                        onChangeText={setPassword}
+                        placeholder="Create a password"
+                        placeholderTextColor="#9ca3af"
+                        secureTextEntry={!showPassword}
+                        autoCapitalize="none"
+                      />
+                      <TouchableOpacity onPress={() => setShowPassword((prev) => !prev)} hitSlop={8}>
+                        {showPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View className="mb-0.5">
+                    <Text className="text-base font-bold text-gray-700 mb-2 ml-1">Re-enter Password</Text>
+                    <View
+                      className={`bg-white rounded-2xl px-4 border-2 flex-row items-center ${
+                        passwordsMatch ? 'border-emerald-400' : passwordsMismatch ? 'border-red-300' : 'border-gray-200'
+                      }`}
+                    >
+                      <TextInput
+                        className="flex-1 text-gray-800 text-base py-4"
+                        value={confirmPassword}
+                        onChangeText={setConfirmPassword}
+                        placeholder="Re-enter your password"
+                        placeholderTextColor="#9ca3af"
+                        secureTextEntry={!showConfirmPassword}
+                        autoCapitalize="none"
+                      />
+                      <TouchableOpacity onPress={() => setShowConfirmPassword((prev) => !prev)} hitSlop={8}>
+                        {showConfirmPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
+                      </TouchableOpacity>
                     </View>
                   </View>
 
